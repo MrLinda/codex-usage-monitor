@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
+import threading
 
 import uvicorn
 
@@ -12,14 +14,45 @@ from app.scheduler.poller import Poller
 logger = logging.getLogger("codex_usage_monitor")
 
 
-async def main():
-    config = load_config()
-    setup_logging(config.paths.log_dir)
+def run_backend(config):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
     poller = Poller(config)
 
+    async def run():
+        config_obj = uvicorn.Config(
+            "app.server.api:app",
+            host=config.app.host,
+            port=config.app.port,
+            log_level="info",
+        )
+        server = uvicorn.Server(config_obj)
+        await asyncio.gather(server.serve(), poller.poll_loop())
+
+    loop.run_until_complete(run())
+
+
+def main():
+    config = load_config()
+    setup_logging(config.paths.log_dir)
+
     logger.info("Starting Codex Usage Monitor v0.1.0")
     logger.info("Dashboard: http://%s:%d", config.app.host, config.app.port)
+
+    if "--headless" in sys.argv:
+        asyncio.run(_async_main(config))
+    else:
+        backend_thread = threading.Thread(target=run_backend, args=(config,), daemon=True)
+        backend_thread.start()
+
+        from app.gui import App
+        app = App()
+        app.run()
+
+
+async def _async_main(config):
+    poller = Poller(config)
 
     async def run_server():
         config_obj = uvicorn.Config(
@@ -35,4 +68,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

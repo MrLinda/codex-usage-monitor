@@ -160,8 +160,8 @@ async function refresh() {
       fetchJSON('/api/events'),
       fetchJSON('/api/usage/windowed'),
       fetchJSON('/api/quota/status'),
-      fetchJSON('/api/quota/history?limit=500'),
-      fetchJSON('/api/quota/estimated-costs?limit=500'),
+      fetchJSON('/api/quota/history?limit=20'),
+      fetchJSON('/api/quota/estimated-costs?limit=20'),
     ]);
     lastData = { status: data[0], tokenUsage: data[1], events: data[2], windowed: data[3], quotaStatus: data[4], quotaHistory: data[5], estimatedCosts: data[6] };
 
