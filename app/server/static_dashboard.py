@@ -64,6 +64,7 @@ h2 { font-size: 16px; margin-bottom: 12px; color: #f0f6fc; }
   <div class="nav-item active" data-page="overview">概览</div>
   <div class="nav-item" data-page="quota">配额</div>
   <div class="nav-item" data-page="events">事件</div>
+  <div style="margin-left:auto"><select id="refreshInterval" style="background:#161b22;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:4px 8px;font-size:13px;cursor:pointer"><option value="10000">10s</option><option value="30000" selected>30s</option><option value="60000">1m</option></select></div>
 </div>
 
 <div class="content">
@@ -366,8 +367,14 @@ function renderEvents(d) {
 }
 
 // === Init ===
+let refreshTimer;
+function startRefresh() {
+  clearInterval(refreshTimer);
+  refreshTimer = setInterval(refresh, parseInt(document.getElementById('refreshInterval').value));
+}
+document.getElementById('refreshInterval').addEventListener('change', startRefresh);
 refresh();
-setInterval(refresh, 30000);
+startRefresh();
 </script>
 </body>
 </html>"""
