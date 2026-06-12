@@ -20,6 +20,9 @@ def run_backend(config):
 
     poller = Poller(config)
 
+    import app.server.api as api_module
+    api_module._poller = poller
+
     async def run():
         config_obj = uvicorn.Config(
             "app.server.api:app",
@@ -53,6 +56,9 @@ def main():
 
 async def _async_main(config):
     poller = Poller(config)
+
+    import app.server.api as api_module
+    api_module._poller = poller
 
     async def run_server():
         config_obj = uvicorn.Config(

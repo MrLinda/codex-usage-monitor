@@ -64,7 +64,10 @@ h2 { font-size: 16px; margin-bottom: 12px; color: #f0f6fc; }
   <div class="nav-item active" data-page="overview">概览</div>
   <div class="nav-item" data-page="quota">配额</div>
   <div class="nav-item" data-page="events">事件</div>
-  <div style="margin-left:auto"><select id="refreshInterval" style="background:#161b22;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:4px 8px;font-size:13px;cursor:pointer"><option value="10000">10s</option><option value="30000" selected>30s</option><option value="60000">1m</option></select></div>
+  <div style="margin-left:auto;display:flex;gap:12px;align-items:center">
+    <span style="color:#8b949e;font-size:12px">限额刷新 <select id="quotaInterval" style="background:#161b22;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:4px 8px;font-size:13px;cursor:pointer"><option value="5">5m</option><option value="10" selected>10m</option><option value="15">15m</option><option value="30">30m</option></select></span>
+    <span style="color:#8b949e;font-size:12px">token刷新 <select id="refreshInterval" style="background:#161b22;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:4px 8px;font-size:13px;cursor:pointer"><option value="10000">10s</option><option value="30000" selected>30s</option><option value="60000">1m</option></select></span>
+  </div>
 </div>
 
 <div class="content">
@@ -373,6 +376,21 @@ function startRefresh() {
   refreshTimer = setInterval(refresh, parseInt(document.getElementById('refreshInterval').value));
 }
 document.getElementById('refreshInterval').addEventListener('change', startRefresh);
+
+document.getElementById('quotaInterval').addEventListener('change', async () => {
+  const minutes = parseInt(document.getElementById('quotaInterval').value);
+  await fetch('/api/quota/interval', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({minutes}) });
+});
+
+async function initQuotaInterval() {
+  try {
+    const res = await fetch('/api/quota/interval');
+    const data = await res.json();
+    document.getElementById('quotaInterval').value = String(data.minutes);
+  } catch {}
+}
+initQuotaInterval();
+
 refresh();
 startRefresh();
 </script>

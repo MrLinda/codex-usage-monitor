@@ -6,6 +6,7 @@ from datetime import datetime
 
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, PlainTextResponse
+from pydantic import BaseModel
 
 from app.config import Config, load_config
 from app.server.static_dashboard import DASHBOARD_HTML
@@ -17,6 +18,7 @@ app = FastAPI(title="Codex Usage Monitor", version="0.1.0")
 
 _config: Config | None = None
 _repo: Repository | None = None
+_poller = None
 
 
 def get_config() -> Config:
@@ -107,6 +109,26 @@ def api_events(limit: int = Query(100)):
 @app.post("/api/collect-now")
 async def api_collect_now():
     return {"status": "queued", "message": "Collection will run on next poll cycle"}
+
+
+class QuotaIntervalRequest(BaseModel):
+    minutes: int
+
+
+@app.get("/api/quota/interval")
+def api_get_quota_interval():
+    if _poller:
+        return {"minutes": _poller.quota_interval_minutes}
+    return {"minutes": 10}
+
+
+@app.post("/api/quota/interval")
+def api_set_quota_interval(req: QuotaIntervalRequest):
+    global _poller
+    if _poller:
+        _poller.quota_interval_minutes = max(1, req.minutes)
+        return {"minutes": _poller.quota_interval_minutes}
+    return {"error": "poller not available"}
 
 
 @app.get("/api/usage/rolling")
