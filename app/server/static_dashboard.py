@@ -65,6 +65,7 @@ h2 { font-size: 16px; margin-bottom: 12px; color: #f0f6fc; }
   <div class="nav-item" data-page="quota">配额</div>
   <div class="nav-item" data-page="events">事件</div>
   <div style="margin-left:auto;display:flex;gap:12px;align-items:center">
+    <button id="refreshAll" style="background:#1f6feb;color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:13px;cursor:pointer">全部刷新</button>
     <span style="color:#8b949e;font-size:12px">限额刷新 <select id="quotaInterval" style="background:#161b22;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:4px 8px;font-size:13px;cursor:pointer"><option value="5">5m</option><option value="10" selected>10m</option><option value="15">15m</option><option value="30">30m</option></select></span>
     <span style="color:#8b949e;font-size:12px">token刷新 <select id="refreshInterval" style="background:#161b22;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:4px 8px;font-size:13px;cursor:pointer"><option value="10000">10s</option><option value="30000" selected>30s</option><option value="60000">1m</option></select></span>
   </div>
@@ -390,6 +391,19 @@ async function initQuotaInterval() {
   } catch {}
 }
 initQuotaInterval();
+
+document.getElementById('refreshAll').addEventListener('click', async () => {
+  const btn = document.getElementById('refreshAll');
+  btn.textContent = '采集中...';
+  btn.disabled = true;
+  try {
+    await fetch('/api/collect-now', { method: 'POST' });
+    await refresh();
+  } finally {
+    btn.textContent = '全部刷新';
+    btn.disabled = false;
+  }
+});
 
 refresh();
 startRefresh();

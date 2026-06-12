@@ -108,7 +108,11 @@ def api_events(limit: int = Query(100)):
 
 @app.post("/api/collect-now")
 async def api_collect_now():
-    return {"status": "queued", "message": "Collection will run on next poll cycle"}
+    if _poller:
+        token_count = await _poller.collect_once()
+        await _poller.collect_quota_once()
+        return {"status": "ok", "token_count": token_count}
+    return {"status": "error", "message": "poller not available"}
 
 
 class QuotaIntervalRequest(BaseModel):
