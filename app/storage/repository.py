@@ -174,10 +174,21 @@ class Repository:
         ).fetchone()
         return dict(row) if row else None
 
-    def get_quota_history(self, limit: int = 500) -> list[dict[str, Any]]:
-        rows = self.conn.execute(
-            "SELECT * FROM quota_samples ORDER BY captured_at ASC LIMIT ?", (limit,)
-        ).fetchall()
+    def get_quota_history(self, limit: int = 500, from_dt: datetime | None = None, to_dt: datetime | None = None) -> list[dict[str, Any]]:
+        query = "SELECT * FROM quota_samples"
+        params: list[str] = []
+        conditions = []
+        if from_dt:
+            conditions.append("captured_at >= ?")
+            params.append(from_dt.isoformat())
+        if to_dt:
+            conditions.append("captured_at <= ?")
+            params.append(to_dt.isoformat())
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query = f"SELECT * FROM ({query} ORDER BY captured_at DESC LIMIT ?) ORDER BY captured_at ASC"
+        params.append(limit)
+        rows = self.conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
     def get_cumulative_cost(self, from_dt: datetime, to_dt: datetime) -> float:

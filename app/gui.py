@@ -6,7 +6,7 @@ import tkinter as tk
 from tkinter import scrolledtext
 
 import pystray
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageTk
 
 logger = logging.getLogger("codex_usage_monitor")
 
@@ -29,11 +29,17 @@ class LogHandler(logging.Handler):
         self.widget.configure(state="disabled")
 
 
-def create_tray_icon() -> Image.Image:
-    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+def create_icon_image(size: int = 64) -> Image.Image:
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    draw.rounded_rectangle([8, 8, 56, 56], radius=8, fill="#58a6ff")
-    draw.text((20, 16), "C", fill="white")
+    s = size / 64
+    draw.rounded_rectangle([4*s, 4*s, 60*s, 60*s], radius=12*s, fill="#1f6feb")
+    points = [(16*s, 40*s), (24*s, 28*s), (32*s, 34*s), (40*s, 20*s), (48*s, 26*s)]
+    draw.line(points, fill="white", width=int(2.5*s))
+    for px, py in points[1:-1]:
+        draw.ellipse([px-2.5*s, py-2.5*s, px+2.5*s, py+2.5*s], fill="white")
+    draw.line([(16*s, 44*s), (48*s, 44*s)], fill="white", width=int(1.5*s))
+    draw.line([(16*s, 20*s), (16*s, 44*s)], fill="white", width=int(1.5*s))
     return img
 
 
@@ -44,6 +50,10 @@ class App:
         self.root.geometry("600x400")
         self.root.configure(bg="#0d1117")
         self.root.protocol("WM_DELETE_WINDOW", self._minimize_to_tray)
+
+        self._icon_img = create_icon_image(64)
+        self._icon_photo = ImageTk.PhotoImage(self._icon_img)
+        self.root.iconphoto(True, self._icon_photo)
 
         self._build_ui()
         self._setup_logging()
@@ -88,7 +98,7 @@ class App:
         threading.Thread(target=self._tray_icon.run, daemon=True).start()
 
     def _create_tray_icon(self):
-        icon_image = create_tray_icon()
+        icon_image = create_icon_image(64)
         menu = pystray.Menu(
             pystray.MenuItem("打开控制台", lambda: self._open_dashboard()),
             pystray.MenuItem("显示窗口", lambda: self._show_window()),

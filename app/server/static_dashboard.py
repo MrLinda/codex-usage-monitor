@@ -4,6 +4,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Codex 监控</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='4' y='4' width='56' height='56' rx='12' fill='%231f6feb'/%3E%3Cpolyline points='16,40 24,28 32,34 40,20 48,26' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='24' cy='28' r='2.5' fill='white'/%3E%3Ccircle cx='32' cy='34' r='2.5' fill='white'/%3E%3Ccircle cx='40' cy='20' r='2.5' fill='white'/%3E%3Cline x1='16' y1='44' x2='48' y2='44' stroke='white' stroke-width='1.5' stroke-linecap='round'/%3E%3Cline x1='16' y1='20' x2='16' y2='44' stroke='white' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -51,6 +52,12 @@ h2 { font-size: 16px; margin-bottom: 12px; color: #f0f6fc; }
 .window-btn { padding: 6px 16px; border-radius: 6px; border: 1px solid #30363d; background: #161b22; color: #8b949e; cursor: pointer; font-size: 13px; transition: all 0.15s; }
 .window-btn:hover { background: #1c2128; color: #c9d1d9; }
 .window-btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+.usage-btn { padding: 6px 16px; border-radius: 6px; border: 1px solid #30363d; background: #161b22; color: #8b949e; cursor: pointer; font-size: 13px; transition: all 0.15s; }
+.usage-btn:hover { background: #1c2128; color: #c9d1d9; }
+.usage-btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+.quota-range-btn { padding: 6px 16px; border-radius: 6px; border: 1px solid #30363d; background: #161b22; color: #8b949e; cursor: pointer; font-size: 13px; transition: all 0.15s; }
+.quota-range-btn:hover { background: #1c2128; color: #c9d1d9; }
+.quota-range-btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
 
 /* Toolbar */
 .toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
@@ -63,6 +70,7 @@ h2 { font-size: 16px; margin-bottom: 12px; color: #f0f6fc; }
   <div class="nav-title">Codex 监控</div>
   <div class="nav-item active" data-page="overview">概览</div>
   <div class="nav-item" data-page="quota">配额</div>
+  <div class="nav-item" data-page="usage">用量</div>
   <div class="nav-item" data-page="events">事件</div>
   <div style="margin-left:auto;display:flex;gap:12px;align-items:center">
     <button id="refreshAll" style="background:#1f6feb;color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:13px;cursor:pointer">全部刷新</button>
@@ -96,9 +104,33 @@ h2 { font-size: 16px; margin-bottom: 12px; color: #f0f6fc; }
       <button class="window-btn" data-window="five_hour">5 小时</button>
       <button class="window-btn" data-window="weekly">周</button>
     </div>
-    <div></div>
+    <div class="window-selector">
+      <button class="quota-range-btn active" data-range="24h">近 24h</button>
+      <button class="quota-range-btn" data-range="7d">近 7 天</button>
+      <button class="quota-range-btn" data-range="30d">近 30 天</button>
+      <button class="quota-range-btn" data-range="all">全部</button>
+    </div>
   </div>
   <div class="chart-container"><canvas id="quotaChart"></canvas></div>
+</div>
+
+<!-- Page: 用量 -->
+<div class="page" id="page-usage">
+  <div class="toolbar">
+    <div class="window-selector">
+      <button class="usage-btn active" data-preset="24h">近 24h</button>
+      <button class="usage-btn" data-preset="7d">近 7 天</button>
+      <button class="usage-btn" data-preset="today">今天</button>
+      <button class="usage-btn" data-preset="week">这周</button>
+    </div>
+    <div></div>
+  </div>
+  <div class="cards" id="usageCards"></div>
+  <div class="charts-2col">
+    <div class="chart-container"><canvas id="usageModelChart"></canvas></div>
+    <div class="chart-container"><canvas id="usageCostChart"></canvas></div>
+  </div>
+  <div class="chart-container" style="height:400px"><canvas id="usageTrendChart"></canvas></div>
 </div>
 
 <!-- Page: 事件 -->
@@ -170,7 +202,8 @@ async function refresh() {
     lastData = { status: data[0], tokenUsage: data[1], events: data[2], windowed: data[3], quotaStatus: data[4], quotaHistory: data[5], estimatedCosts: data[6] };
 
   if (currentPage === 'overview') renderOverview(lastData);
-  else if (currentPage === 'quota') renderQuota(lastData);
+  else if (currentPage === 'quota') loadQuotaData();
+  else if (currentPage === 'usage') loadUsageData();
   else if (currentPage === 'events') renderEvents(lastData);
 }
 
@@ -303,6 +336,7 @@ function renderOverview(d) {
 
 // === Quota ===
 let selectedWindow = 'both';
+let selectedQuotaRange = '24h';
 document.querySelectorAll('.window-btn').forEach(el => {
   el.addEventListener('click', () => {
     selectedWindow = el.dataset.window;
@@ -310,6 +344,40 @@ document.querySelectorAll('.window-btn').forEach(el => {
     if (currentPage === 'quota') renderQuota(lastData);
   });
 });
+document.querySelectorAll('.quota-range-btn').forEach(el => {
+  el.addEventListener('click', () => {
+    selectedQuotaRange = el.dataset.range;
+    document.querySelectorAll('.quota-range-btn').forEach(b => b.classList.toggle('active', b.dataset.range === selectedQuotaRange));
+    if (currentPage === 'quota') loadQuotaData();
+  });
+});
+
+function getQuotaRange() {
+  const now = new Date();
+  if (selectedQuotaRange === 'all') return { from: null, to: null };
+  let from;
+  if (selectedQuotaRange === '24h') from = new Date(now.getTime() - 24 * 3600 * 1000);
+  else if (selectedQuotaRange === '7d') from = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+  else if (selectedQuotaRange === '30d') from = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+  return { from: from.toISOString(), to: now.toISOString() };
+}
+
+async function loadQuotaData() {
+  const { from, to } = getQuotaRange();
+  const params = new URLSearchParams({ limit: '500' });
+  if (from) params.set('from_dt', from);
+  if (to) params.set('to_dt', to);
+  const qs = params.toString();
+  const data = await Promise.all([
+    fetchJSON('/api/quota/status'),
+    fetchJSON('/api/quota/history?' + qs),
+    fetchJSON('/api/quota/estimated-costs?' + qs),
+  ]);
+  lastData.quotaStatus = data[0];
+  lastData.quotaHistory = data[1];
+  lastData.estimatedCosts = data[2];
+  renderQuota(lastData);
+}
 
 function renderQuota(d) {
   const q = d.quotaStatus;
@@ -337,6 +405,71 @@ function renderQuota(d) {
   destroyChart('quotaChart');
   if (history.length > 0) {
     const labels = history.map(r => new Date(r.captured_at).toLocaleString());
+
+    const resetLines = [];
+    let prevFhReset = null;
+    let prevWkReset = null;
+    let fhConfirmCount = 0;
+    let wkConfirmCount = 0;
+    for (let i = 0; i < history.length; i++) {
+      const r = history[i];
+      const fhReset = r.five_hour_reset_at;
+      const wkReset = r.weekly_reset_at;
+
+      if (fhReset && prevFhReset) {
+        const diffMs = Math.abs(new Date(fhReset) - new Date(prevFhReset));
+        if (diffMs < 120000) {
+          fhConfirmCount++;
+        } else {
+          if (fhConfirmCount >= 3 || diffMs >= 2 * 3600 * 1000) {
+            resetLines.push({ index: i, label: '5h 重置', color: '#58a6ff' });
+          }
+          fhConfirmCount = 0;
+        }
+      }
+      if (wkReset && prevWkReset) {
+        const diffMs = Math.abs(new Date(wkReset) - new Date(prevWkReset));
+        if (diffMs < 120000) {
+          wkConfirmCount++;
+        } else {
+          if (wkConfirmCount >= 3 || diffMs >= 2 * 3600 * 1000) {
+            resetLines.push({ index: i, label: '周重置', color: '#3fb950' });
+          }
+          wkConfirmCount = 0;
+        }
+      }
+      if (fhReset) prevFhReset = fhReset;
+      if (wkReset) prevWkReset = wkReset;
+    }
+
+    const resetPlugin = {
+      id: 'resetLines',
+      afterDraw(chart) {
+        const { ctx, chartArea, scales } = chart;
+        const xScale = scales.x;
+        resetLines.forEach(line => {
+          const x = xScale.getPixelForValue(line.index);
+          if (x < chartArea.left || x > chartArea.right) return;
+          ctx.save();
+          ctx.beginPath();
+          ctx.setLineDash([6, 4]);
+          ctx.strokeStyle = line.color;
+          ctx.globalAlpha = 0.6;
+          ctx.lineWidth = 1.5;
+          ctx.moveTo(x, chartArea.top);
+          ctx.lineTo(x, chartArea.bottom);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.globalAlpha = 0.8;
+          ctx.fillStyle = line.color;
+          ctx.font = '11px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(line.label, x, chartArea.top - 4);
+          ctx.restore();
+        });
+      },
+    };
+
     const datasets = [];
     if (selectedWindow === 'both' || selectedWindow === 'five_hour') {
       datasets.push({ label: '5 小时剩余 %', data: history.map(r => r.five_hour_remaining_pct), borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.08)', tension: 0.3, fill: true, pointRadius: 2, yAxisID: 'y' });
@@ -349,6 +482,7 @@ function renderQuota(d) {
     charts.quotaChart = new Chart(document.getElementById('quotaChart'), {
       type: 'line',
       data: { labels, datasets },
+      plugins: [resetPlugin],
       options: {
         responsive: true,
         interaction: { mode: 'index', intersect: false },
@@ -368,6 +502,127 @@ function renderEvents(d) {
   document.getElementById('eventList').innerHTML = d.events.slice(0, 50).map(e =>
     `<li>[${new Date(e.event_at).toLocaleString()}] <strong>${e.event_type}</strong>: ${e.message || ''}</li>`
   ).join('');
+}
+
+// === Usage ===
+let selectedPreset = '24h';
+document.querySelectorAll('.usage-btn').forEach(el => {
+  el.addEventListener('click', () => {
+    selectedPreset = el.dataset.preset;
+    document.querySelectorAll('.usage-btn').forEach(b => b.classList.toggle('active', b.dataset.preset === selectedPreset));
+    if (currentPage === 'usage') loadUsageData();
+  });
+});
+
+function getUsageRange() {
+  const now = new Date();
+  let from, to;
+  to = now.toISOString();
+  if (selectedPreset === '24h') {
+    from = new Date(now.getTime() - 24 * 3600 * 1000).toISOString();
+  } else if (selectedPreset === '7d') {
+    from = new Date(now.getTime() - 7 * 24 * 3600 * 1000).toISOString();
+  } else if (selectedPreset === 'today') {
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    from = start.toISOString();
+  } else if (selectedPreset === 'week') {
+    const start = new Date(now);
+    start.setDate(start.getDate() - start.getDay());
+    start.setHours(0, 0, 0, 0);
+    from = start.toISOString();
+  }
+  return { from, to };
+}
+
+async function loadUsageData() {
+  const { from, to } = getUsageRange();
+  const params = new URLSearchParams({ from_dt: from, to_dt: to, limit: '100000' });
+  const rows = await fetchJSON('/api/token-usage?' + params);
+  const d = { rows };
+  renderUsage(d);
+}
+
+function renderUsage(d) {
+  const rows = d.rows || d.tokenUsage || [];
+  let input = 0, cached = 0, output = 0, reasoning = 0, cost = 0;
+  const models = {};
+  const buckets = {};
+  for (const r of rows) {
+    const inp = r.input_tokens || 0;
+    const cac = r.cached_input_tokens || 0;
+    const out = r.output_tokens || 0;
+    const rea = r.reasoning_tokens || 0;
+    const cst = r.estimated_cost_usd || 0;
+    input += inp; cached += cac; output += out; reasoning += rea; cost += cst;
+    const m = r.model || 'unknown';
+    if (!models[m]) models[m] = { input: 0, cached: 0, output: 0, cost: 0 };
+    models[m].input += inp; models[m].cached += cac; models[m].output += out; models[m].cost += cst;
+    const date = new Date(r.event_time);
+    const key = date.toLocaleDateString() + ' ' + date.getHours() + ':00';
+    if (!buckets[key]) buckets[key] = { tokens: 0, cost: 0 };
+    buckets[key].tokens += (inp + out);
+    buckets[key].cost += cst;
+  }
+  const total = input + output;
+  const uncached = input - cached;
+
+  document.getElementById('usageCards').innerHTML = `
+    <div class="card" style="flex:2;min-width:320px">
+      <div class="label">用量统计</div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><div class="value">${fmtNum(total)}</div><div class="value" style="color:#d29922;font-size:22px">${fmt$(cost)}</div></div>
+      <div class="sub">${rows.length} 次请求</div>
+      <div class="bar-stack"><div style="width:${total > 0 ? (uncached / total * 100).toFixed(0) : 0}%;background:#58a6ff"></div><div style="width:${total > 0 ? (cached / total * 100).toFixed(0) : 0}%;background:#a371f7"></div><div style="width:${total > 0 ? (output / total * 100).toFixed(0) : 0}%;background:#f85149"></div></div>
+      <div class="token-row"><div><div class="num">${fmtNum(uncached)}</div><div class="lbl">输入</div></div><div><div class="num">${fmtNum(cached)}</div><div class="lbl">缓存读取</div></div><div><div class="num">${fmtNum(output)}</div><div class="lbl">输出</div></div></div>
+    </div>
+    <div class="card"><div class="label">模型数</div><div class="value">${Object.keys(models).length}</div></div>
+  `;
+
+  const modelNames = Object.keys(models).sort((a, b) => models[b].cost - models[a].cost);
+  destroyChart('usageModelChart');
+  if (modelNames.length > 0) {
+    charts.usageModelChart = new Chart(document.getElementById('usageModelChart'), {
+      type: 'bar',
+      data: {
+        labels: modelNames,
+        datasets: [
+          { label: 'Input', data: modelNames.map(m => models[m].input - models[m].cached), backgroundColor: '#58a6ff' },
+          { label: 'Cache', data: modelNames.map(m => models[m].cached), backgroundColor: '#a371f7' },
+          { label: 'Output', data: modelNames.map(m => models[m].output), backgroundColor: '#3fb950' },
+        ],
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: '模型 Token 分布', color: '#c9d1d9' }, legend: { labels: { color: '#c9d1d9' } } }, scales: { x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } }, y: { ticks: { color: '#8b949e', callback: (v) => fmt(v) }, grid: { color: '#21262d' } } } },
+    });
+  }
+
+  destroyChart('usageCostChart');
+  if (modelNames.length > 0) {
+    charts.usageCostChart = new Chart(document.getElementById('usageCostChart'), {
+      type: 'doughnut',
+      data: { labels: modelNames, datasets: [{ data: modelNames.map(m => Number(models[m].cost.toFixed(4))), backgroundColor: COLORS.slice(0, modelNames.length), borderWidth: 0 }] },
+      options: { responsive: true, maintainAspectRatio: false, cutout: '65%', plugins: { title: { display: true, text: '模型成本分布', color: '#c9d1d9' }, legend: { position: 'bottom', labels: { color: '#c9d1d9', boxWidth: 12, padding: 8 } }, tooltip: { callbacks: { label: (ctx) => fmt$(ctx.parsed) } } } },
+    });
+  }
+
+  const labels = Object.keys(buckets);
+  destroyChart('usageTrendChart');
+  if (labels.length > 0) {
+    charts.usageTrendChart = new Chart(document.getElementById('usageTrendChart'), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Token', data: labels.map(k => buckets[k].tokens), borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.1)', yAxisID: 'y', tension: 0.3, fill: true },
+          { label: 'Cost $', data: labels.map(k => Number(buckets[k].cost.toFixed(4))), borderColor: '#d29922', backgroundColor: 'rgba(210,153,34,0.1)', yAxisID: 'y1', tension: 0.3, fill: true },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { title: { display: true, text: 'Token 和成本趋势（按小时）', color: '#c9d1d9' }, legend: { labels: { color: '#c9d1d9' } } },
+        scales: { x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } }, y: { type: 'linear', position: 'left', ticks: { color: '#58a6ff', callback: (v) => fmt(v) }, grid: { color: '#21262d' } }, y1: { type: 'linear', position: 'right', ticks: { color: '#d29922', callback: (v) => fmt$(v) }, grid: { display: false } } },
+      },
+    });
+  }
 }
 
 // === Init ===

@@ -185,17 +185,29 @@ def api_quota_status():
 
 
 @app.get("/api/quota/history")
-def api_quota_history(limit: int = 500):
+def api_quota_history(
+    limit: int = 500,
+    from_dt: str | None = Query(None),
+    to_dt: str | None = Query(None),
+):
     repo = get_repo()
-    return repo.get_quota_history(limit=limit)
+    from_parsed = datetime.fromisoformat(from_dt) if from_dt else None
+    to_parsed = datetime.fromisoformat(to_dt) if to_dt else None
+    return repo.get_quota_history(limit=limit, from_dt=from_parsed, to_dt=to_parsed)
 
 
 @app.get("/api/quota/estimated-costs")
-def api_quota_estimated_costs(limit: int = 500):
+def api_quota_estimated_costs(
+    limit: int = 500,
+    from_dt: str | None = Query(None),
+    to_dt: str | None = Query(None),
+):
     from datetime import timedelta
 
     repo = get_repo()
-    samples = repo.get_quota_history(limit=limit)
+    from_parsed = datetime.fromisoformat(from_dt) if from_dt else None
+    to_parsed = datetime.fromisoformat(to_dt) if to_dt else None
+    samples = repo.get_quota_history(limit=limit, from_dt=from_parsed, to_dt=to_parsed)
     result = []
 
     for s in samples:
