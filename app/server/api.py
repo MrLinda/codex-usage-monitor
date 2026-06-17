@@ -221,7 +221,8 @@ def api_quota_estimated_costs(
             reset_dt = datetime.fromisoformat(fh_reset)
             window_start = reset_dt - timedelta(seconds=fh_window)
             cost = repo.get_cumulative_cost(window_start, captured)
-            entry["five_hour_est_total"] = round(cost / (fh_pct / 100), 4)
+            if cost > 0:
+                entry["five_hour_est_total"] = round(cost / (fh_pct / 100), 4)
 
         wk_reset = s.get("weekly_reset_at")
         wk_window = s.get("weekly_window_seconds")
@@ -230,7 +231,8 @@ def api_quota_estimated_costs(
             reset_dt = datetime.fromisoformat(wk_reset)
             window_start = reset_dt - timedelta(seconds=wk_window)
             cost = repo.get_cumulative_cost(window_start, captured)
-            entry["weekly_est_total"] = round(cost / (wk_pct / 100), 4)
+            if cost > 0:
+                entry["weekly_est_total"] = round(cost / (wk_pct / 100), 4)
 
         result.append(entry)
 

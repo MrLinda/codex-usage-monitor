@@ -106,6 +106,7 @@ class QuotaCollector(Collector):
         return QuotaSample(
             captured_at=captured_at,
             plan_type=data.get("plan_type", "?"),
+            email=data.get("email", ""),
             five_hour_used_pct=fh_used,
             five_hour_remaining_pct=fh_remaining,
             five_hour_reset_at=fh_reset,

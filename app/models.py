@@ -22,6 +22,7 @@ class TokenUsage:
 class QuotaSample:
     captured_at: datetime
     plan_type: str
+    email: str = ""
     five_hour_used_pct: float | None = None
     five_hour_remaining_pct: float | None = None
     five_hour_reset_at: datetime | None = None

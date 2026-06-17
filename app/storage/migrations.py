@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS quota_samples (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     captured_at TEXT NOT NULL,
     plan_type TEXT NOT NULL,
+    email TEXT NOT NULL DEFAULT '',
     five_hour_used_pct REAL,
     five_hour_remaining_pct REAL,
     five_hour_reset_at TEXT,
@@ -66,3 +67,12 @@ ON quota_samples(captured_at);
 def run_migrations(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_SQL)
     conn.commit()
+
+    _add_column_if_missing(conn, "quota_samples", "email", "TEXT NOT NULL DEFAULT ''")
+
+
+def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, col_def: str) -> None:
+    cols = [row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_def}")
+        conn.commit()

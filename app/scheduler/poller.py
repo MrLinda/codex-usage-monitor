@@ -70,8 +70,11 @@ class Poller:
         self._running = True
         logger.info("Polling started (interval=%d min, quota_interval=%d min)", self.config.app.poll_interval_minutes, self.quota_interval_minutes)
         self.repo.insert_event(datetime.now(timezone.utc), "monitor_started", "Polling started")
-        elapsed = 0
+        step = min(self.config.app.poll_interval_minutes * 60, self.quota_interval_minutes * 60)
+        elapsed = step
         while self._running:
+            await asyncio.sleep(step)
+            elapsed += step
             try:
                 await self.collect_once()
             except Exception as e:
@@ -79,7 +82,7 @@ class Poller:
                 self.repo.insert_event(
                     datetime.now(timezone.utc), "token_error", str(e),
                 )
-            if elapsed >= self.quota_interval_minutes * 60 or elapsed == 0:
+            if elapsed >= self.quota_interval_minutes * 60:
                 try:
                     await self.collect_quota_once()
                 except Exception as e:
@@ -88,9 +91,6 @@ class Poller:
                         datetime.now(timezone.utc), "quota_error", str(e),
                     )
                 elapsed = 0
-            step = min(self.config.app.poll_interval_minutes * 60, self.quota_interval_minutes * 60)
-            await asyncio.sleep(step)
-            elapsed += step
 
     def stop(self):
         self._running = False

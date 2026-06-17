@@ -144,14 +144,15 @@ class Repository:
     def insert_quota_sample(self, sample: QuotaSample) -> int:
         cur = self.conn.execute(
             """INSERT INTO quota_samples
-               (captured_at, plan_type,
+               (captured_at, plan_type, email,
                 five_hour_used_pct, five_hour_remaining_pct, five_hour_reset_at, five_hour_window_seconds,
                 weekly_used_pct, weekly_remaining_pct, weekly_reset_at, weekly_window_seconds,
                 has_credits, credits_balance, raw_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 sample.captured_at.isoformat(),
                 sample.plan_type,
+                sample.email,
                 sample.five_hour_used_pct,
                 sample.five_hour_remaining_pct,
                 sample.five_hour_reset_at.isoformat() if sample.five_hour_reset_at else None,

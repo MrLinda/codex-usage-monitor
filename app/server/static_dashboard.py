@@ -58,6 +58,9 @@ h2 { font-size: 16px; margin-bottom: 12px; color: #f0f6fc; }
 .quota-range-btn { padding: 6px 16px; border-radius: 6px; border: 1px solid #30363d; background: #161b22; color: #8b949e; cursor: pointer; font-size: 13px; transition: all 0.15s; }
 .quota-range-btn:hover { background: #1c2128; color: #c9d1d9; }
 .quota-range-btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+.trend-btn { padding: 6px 16px; border-radius: 6px; border: 1px solid #30363d; background: #161b22; color: #8b949e; cursor: pointer; font-size: 13px; transition: all 0.15s; }
+.trend-btn:hover { background: #1c2128; color: #c9d1d9; }
+.trend-btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
 
 /* Toolbar */
 .toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
@@ -91,7 +94,15 @@ h2 { font-size: 16px; margin-bottom: 12px; color: #f0f6fc; }
     <div class="chart-container"><canvas id="ovCostChart"></canvas></div>
     <div class="chart-container"><canvas id="ovModelChart"></canvas></div>
   </div>
-  <div class="chart-container" style="height:400px"><canvas id="ovTrendChart"></canvas></div>
+  <div class="chart-container" style="height:400px">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+      <div class="window-selector">
+        <button class="trend-btn active" data-gran="hour">按小时</button>
+        <button class="trend-btn" data-gran="day">按天</button>
+      </div>
+    </div>
+    <canvas id="ovTrendChart"></canvas>
+  </div>
 </div>
 
 <!-- Page: 配额 -->
@@ -173,6 +184,18 @@ function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete chart
 function destroyAllCharts() { Object.keys(charts).forEach(k => destroyChart(k)); }
 
 function fmtTime(isoStr) { if (!isoStr) return '-'; return new Date(isoStr).toLocaleString(); }
+function fmtCountdown(isoStr) {
+  if (!isoStr) return '-';
+  const diff = new Date(isoStr) - new Date();
+  if (diff <= 0) return '已重置';
+  const totalMin = Math.floor(diff / 60000);
+  const days = Math.floor(totalMin / 1440);
+  const hours = Math.floor((totalMin % 1440) / 60);
+  const mins = totalMin % 60;
+  if (days > 0) return `还剩 ${days}天${hours}小时${mins}分钟`;
+  if (hours > 0) return `还剩 ${hours}小时${mins}分钟`;
+  return `还剩 ${mins}分钟`;
+}
 function gaugeColor(pct) { if (pct == null) return '#30363d'; if (pct <= 15) return '#f85149'; if (pct <= 30) return '#d29922'; return '#3fb950'; }
 function gaugeSVG(pct, size) {
   if (pct == null) return `<svg width="${size}" height="${size}" viewBox="0 0 80 80"><circle cx="40" cy="40" r="34" fill="none" stroke="#30363d" stroke-width="6"/><text x="40" y="42" text-anchor="middle" fill="#8b949e" font-size="16" font-weight="700">-</text></svg>`;
@@ -211,19 +234,19 @@ async function refresh() {
 function renderOverview(d) {
   const q = d.quotaStatus || {};
   document.getElementById('ovQuotaCards').innerHTML = `
-    <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">套餐</div><div style="flex:1;display:flex;align-items:center"><div class="value" style="font-size:22px">${q.plan_type || '-'}</div></div></div>
+    <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">套餐</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div style="font-size:13px;color:#8b949e">${q.email || ''}</div><div class="value" style="font-size:22px">${q.plan_type || '-'}</div></div></div>
     <div class="card">
       <div class="label">5 小时剩余</div>
       <div style="display:flex;flex-direction:column;align-items:center;margin-top:8px">
         ${gaugeSVG(q.five_hour_remaining_pct, 80)}
-        <div style="font-size:11px;color:#8b949e">重置: ${fmtTime(q.five_hour_reset_at)}</div>
+        <div style="font-size:11px;color:#8b949e">${fmtCountdown(q.five_hour_reset_at)}</div>
       </div>
     </div>
     <div class="card">
       <div class="label">周剩余</div>
       <div style="display:flex;flex-direction:column;align-items:center;margin-top:8px">
         ${gaugeSVG(q.weekly_remaining_pct, 80)}
-        <div style="font-size:11px;color:#8b949e">重置: ${fmtTime(q.weekly_reset_at)}</div>
+        <div style="font-size:11px;color:#8b949e">${fmtCountdown(q.weekly_reset_at)}</div>
       </div>
     </div>
     <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">最后采集</div><div style="flex:1;display:flex;align-items:center"><div class="value" style="font-size:16px">${fmtTime(q.captured_at)}</div></div></div>
@@ -288,50 +311,82 @@ function renderOverview(d) {
     });
   }
 
-  // Trend (last 24h, continuous hourly slots)
+  // Trend
+  renderTrendChart(d.tokenUsage);
+}
+
+// === Trend Chart ===
+let selectedTrendGran = 'hour';
+document.querySelectorAll('.trend-btn').forEach(el => {
+  el.addEventListener('click', () => {
+    selectedTrendGran = el.dataset.gran;
+    document.querySelectorAll('.trend-btn').forEach(b => b.classList.toggle('active', b.dataset.gran === selectedTrendGran));
+    if (currentPage === 'overview') renderTrendChart(lastData.tokenUsage);
+  });
+});
+
+function renderTrendChart(tokenUsage) {
   const now = new Date();
   const labels = [];
   const tokenData = [];
   const costData = [];
   const buckets = {};
-  for (const r of d.tokenUsage) {
-    const date = new Date(r.event_time);
-    if (date.getTime() < now.getTime() - 24 * 3600 * 1000) continue;
-    const key = date.toLocaleDateString() + ' ' + date.getHours() + ':00';
-    if (!buckets[key]) buckets[key] = { tokens: 0, cost: 0 };
-    buckets[key].tokens += (r.input_tokens + r.output_tokens);
-    buckets[key].cost += (r.estimated_cost_usd || 0);
+
+  if (selectedTrendGran === 'hour') {
+    for (const r of tokenUsage) {
+      const date = new Date(r.event_time);
+      if (date.getTime() < now.getTime() - 24 * 3600 * 1000) continue;
+      const key = date.toLocaleDateString() + ' ' + date.getHours() + ':00';
+      if (!buckets[key]) buckets[key] = { tokens: 0, cost: 0 };
+      buckets[key].tokens += (r.input_tokens + r.output_tokens);
+      buckets[key].cost += (r.estimated_cost_usd || 0);
+    }
+    for (let i = 23; i >= 0; i--) {
+      const h = new Date(now.getTime() - i * 3600 * 1000);
+      const key = h.toLocaleDateString() + ' ' + h.getHours() + ':00';
+      labels.push(key);
+      const b = buckets[key];
+      tokenData.push(b ? b.tokens : 0);
+      costData.push(b ? Number(b.cost.toFixed(4)) : 0);
+    }
+  } else {
+    for (const r of tokenUsage) {
+      const date = new Date(r.event_time);
+      const key = date.toLocaleDateString();
+      if (!buckets[key]) buckets[key] = { tokens: 0, cost: 0 };
+      buckets[key].tokens += (r.input_tokens + r.output_tokens);
+      buckets[key].cost += (r.estimated_cost_usd || 0);
+    }
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 24 * 3600 * 1000);
+      const key = d.toLocaleDateString();
+      labels.push(key);
+      const b = buckets[key];
+      tokenData.push(b ? b.tokens : 0);
+      costData.push(b ? Number(b.cost.toFixed(4)) : 0);
+    }
   }
-  for (let i = 23; i >= 0; i--) {
-    const h = new Date(now.getTime() - i * 3600 * 1000);
-    const key = h.toLocaleDateString() + ' ' + h.getHours() + ':00';
-    labels.push(key);
-    const b = buckets[key];
-    tokenData.push(b ? b.tokens : 0);
-    costData.push(b ? Number(b.cost.toFixed(4)) : 0);
-  }
+
   destroyChart('ovTrendChart');
-  {
-    charts.ovTrendChart = new Chart(document.getElementById('ovTrendChart'), {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [
-          { label: 'Token', data: tokenData, borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.1)', yAxisID: 'y', tension: 0.3, fill: true },
-          { label: 'Cost $', data: costData, borderColor: '#d29922', backgroundColor: 'rgba(210,153,34,0.1)', yAxisID: 'y1', tension: 0.3, fill: true },
-        ],
+  charts.ovTrendChart = new Chart(document.getElementById('ovTrendChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Token', data: tokenData, borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.1)', yAxisID: 'y', tension: 0.3, fill: true },
+        { label: 'Cost $', data: costData, borderColor: '#d29922', backgroundColor: 'rgba(210,153,34,0.1)', yAxisID: 'y1', tension: 0.3, fill: true },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { title: { display: true, text: selectedTrendGran === 'hour' ? 'Token 和成本趋势（按小时）' : 'Token 和成本趋势（按天）', color: '#c9d1d9' }, legend: { labels: { color: '#c9d1d9' } } },
+      scales: {
+        x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
+        y: { type: 'linear', position: 'left', ticks: { color: '#58a6ff', callback: (v) => fmt(v) }, grid: { color: '#21262d' } },
+        y1: { type: 'linear', position: 'right', ticks: { color: '#d29922', callback: (v) => fmt$(v) }, grid: { display: false } },
       },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { title: { display: true, text: 'Token 和成本趋势（按小时）', color: '#c9d1d9' }, legend: { labels: { color: '#c9d1d9' } } },
-        scales: {
-          x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
-          y: { type: 'linear', position: 'left', ticks: { color: '#58a6ff', callback: (v) => fmt(v) }, grid: { color: '#21262d' } },
-          y1: { type: 'linear', position: 'right', ticks: { color: '#d29922', callback: (v) => fmt$(v) }, grid: { display: false } },
-        },
-      },
-    });
-  }
+    },
+  });
 }
 
 // === Quota ===
@@ -382,7 +437,7 @@ async function loadQuotaData() {
 function renderQuota(d) {
   const q = d.quotaStatus;
   document.getElementById('quotaCards').innerHTML = `
-    <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">套餐</div><div style="flex:1;display:flex;align-items:center"><div class="value" style="font-size:22px">${q.plan_type || '-'}</div></div></div>
+    <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">套餐</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div style="font-size:13px;color:#8b949e">${q.email || ''}</div><div class="value" style="font-size:22px">${q.plan_type || '-'}</div></div></div>
     <div class="card">
       <div class="label">5 小时剩余</div>
       <div style="display:flex;flex-direction:column;align-items:center;margin-top:8px">
@@ -470,14 +525,33 @@ function renderQuota(d) {
       },
     };
 
+    function fillCarryForward(arr) {
+      const filled = [];
+      const isCarried = [];
+      let lastValid = null;
+      for (const v of arr) {
+        if (v !== null && v !== undefined) {
+          lastValid = v;
+          filled.push(v);
+          isCarried.push(false);
+        } else {
+          filled.push(lastValid);
+          isCarried.push(lastValid !== null);
+        }
+      }
+      return { filled, isCarried };
+    }
+
     const datasets = [];
     if (selectedWindow === 'both' || selectedWindow === 'five_hour') {
       datasets.push({ label: '5 小时剩余 %', data: history.map(r => r.five_hour_remaining_pct), borderColor: '#58a6ff', backgroundColor: 'rgba(88,166,255,0.08)', tension: 0.3, fill: true, pointRadius: 2, yAxisID: 'y' });
-      datasets.push({ label: '5h 估算总额 $', data: estCosts.map(r => r.five_hour_est_total), borderColor: '#d29922', backgroundColor: 'rgba(210,153,34,0.08)', tension: 0.3, fill: false, pointRadius: 2, yAxisID: 'y1', borderDash: [5, 3] });
+      const fh5 = fillCarryForward(estCosts.map(r => r.five_hour_est_total));
+      datasets.push({ label: '5h 估算总额 $', data: fh5.filled, borderColor: '#d29922', backgroundColor: 'rgba(210,153,34,0.08)', tension: 0.3, fill: false, pointRadius: 2, yAxisID: 'y1', borderDash: [5, 3], segment: { borderDash: ctx => fh5.isCarried[ctx.p1DataIndex] ? [2, 3] : [5, 3], borderColor: ctx => fh5.isCarried[ctx.p1DataIndex] ? '#6e7681' : '#d29922' } });
     }
     if (selectedWindow === 'both' || selectedWindow === 'weekly') {
       datasets.push({ label: '周剩余 %', data: history.map(r => r.weekly_remaining_pct), borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,0.08)', tension: 0.3, fill: true, pointRadius: 2, yAxisID: 'y' });
-      datasets.push({ label: '周估算总额 $', data: estCosts.map(r => r.weekly_est_total), borderColor: '#f778ba', backgroundColor: 'rgba(247,120,186,0.08)', tension: 0.3, fill: false, pointRadius: 2, yAxisID: 'y1', borderDash: [5, 3] });
+      const wk = fillCarryForward(estCosts.map(r => r.weekly_est_total));
+      datasets.push({ label: '周估算总额 $', data: wk.filled, borderColor: '#f778ba', backgroundColor: 'rgba(247,120,186,0.08)', tension: 0.3, fill: false, pointRadius: 2, yAxisID: 'y1', borderDash: [5, 3], segment: { borderDash: ctx => wk.isCarried[ctx.p1DataIndex] ? [2, 3] : [5, 3], borderColor: ctx => wk.isCarried[ctx.p1DataIndex] ? '#6e7681' : '#f778ba' } });
     }
     charts.quotaChart = new Chart(document.getElementById('quotaChart'), {
       type: 'line',
