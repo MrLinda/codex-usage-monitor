@@ -228,8 +228,8 @@ class App:
         c_5h = "#3fb950" if pct_5h > 30 else "#d29922" if pct_5h > 15 else "#f85149"
         bg_bar = tk.Frame(bar_frame_5h, bg="#21262d", height=6)
         bg_bar.pack(fill=tk.X, side=tk.LEFT, expand=True)
-        fg_bar = tk.Frame(bg_bar, bg=c_5h, height=6, width=max(1, pct_5h * 2))
-        fg_bar.pack(side=tk.LEFT)
+        fg_bar = tk.Frame(bg_bar, bg=c_5h, height=6)
+        fg_bar.place(x=0, y=0, relwidth=max(0.01, pct_5h / 100), relheight=1)
         tk.Label(bar_frame_5h, text=f"{pct_5h}%", fg=c_5h, bg="#161b22", font=("Segoe UI", 9), width=4).pack(side=tk.LEFT, padx=(6, 0))
         tk.Label(content, text=f"  还剩 {_fmt_countdown(fh_reset)}", fg="#8b949e", bg="#161b22", font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 6))
 
@@ -240,8 +240,8 @@ class App:
         c_wk = "#3fb950" if pct_wk > 30 else "#d29922" if pct_wk > 15 else "#f85149"
         bg_bar_wk = tk.Frame(bar_frame_wk, bg="#21262d", height=6)
         bg_bar_wk.pack(fill=tk.X, side=tk.LEFT, expand=True)
-        fg_bar_wk = tk.Frame(bg_bar_wk, bg=c_wk, height=6, width=max(1, pct_wk * 2))
-        fg_bar_wk.pack(side=tk.LEFT)
+        fg_bar_wk = tk.Frame(bg_bar_wk, bg=c_wk, height=6)
+        fg_bar_wk.place(x=0, y=0, relwidth=max(0.01, pct_wk / 100), relheight=1)
         tk.Label(bar_frame_wk, text=f"{pct_wk}%", fg=c_wk, bg="#161b22", font=("Segoe UI", 9), width=4).pack(side=tk.LEFT, padx=(6, 0))
         tk.Label(content, text=f"  还剩 {_fmt_countdown(wk_reset)}", fg="#8b949e", bg="#161b22", font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 6))
 
