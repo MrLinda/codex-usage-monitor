@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 from datetime import datetime
 
 from fastapi import FastAPI, Query
@@ -13,6 +14,8 @@ from app.server.static_dashboard import DASHBOARD_HTML
 from app.storage.db import get_connection
 from app.storage.migrations import run_migrations
 from app.storage.repository import Repository
+
+logger = logging.getLogger("codex_usage_monitor")
 
 app = FastAPI(title="Codex Usage Monitor", version="0.1.0")
 
@@ -130,8 +133,44 @@ def api_get_quota_interval():
 def api_set_quota_interval(req: QuotaIntervalRequest):
     global _poller
     if _poller:
-        _poller.quota_interval_minutes = max(1, req.minutes)
-        return {"minutes": _poller.quota_interval_minutes}
+        minutes = max(1, req.minutes)
+        _poller.quota_interval_minutes = minutes
+        # 同时写入 config.toml，让网页改动也被持久化（与 GUI 设置面板保持一致）
+        try:
+            from app.config import save_config
+            _poller.config.app.quota_interval_minutes = minutes
+            save_config(_poller.config)
+        except Exception as e:
+            logger.warning("save_config failed: %s", e)
+        return {"minutes": minutes}
+    return {"error": "poller not available"}
+
+
+class PollIntervalRequest(BaseModel):
+    seconds: int
+
+
+@app.get("/api/poll/interval")
+def api_get_poll_interval():
+    """token 采集间隔（后端解析 sessions 写 DB 的频率），单位秒。"""
+    if _poller:
+        return {"seconds": _poller.config.app.poll_interval_seconds}
+    return {"seconds": 600}
+
+
+@app.post("/api/poll/interval")
+def api_set_poll_interval(req: PollIntervalRequest):
+    global _poller
+    if _poller:
+        seconds = max(10, req.seconds)
+        _poller.config.app.poll_interval_seconds = seconds
+        # 与 quota 一致：持久化到 config.toml，方便和 GUI 设置面板双向同步
+        try:
+            from app.config import save_config
+            save_config(_poller.config)
+        except Exception as e:
+            logger.warning("save_config failed: %s", e)
+        return {"seconds": seconds}
     return {"error": "poller not available"}
 
 

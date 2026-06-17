@@ -50,7 +50,7 @@ def main():
         backend_thread.start()
 
         from app.gui import App
-        app = App()
+        app = App(config=config)
         app.run()
 
 

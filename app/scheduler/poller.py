@@ -23,7 +23,7 @@ class Poller:
         run_migrations(conn)
         self.repo = Repository(conn)
         self._running = False
-        self.quota_interval_minutes = config.app.poll_interval_minutes
+        self.quota_interval_minutes = config.app.quota_interval_minutes
 
     async def collect_once(self) -> int:
         entries = await self.session_collector.collect()
@@ -68,9 +68,10 @@ class Poller:
 
     async def poll_loop(self):
         self._running = True
-        logger.info("Polling started (interval=%d min, quota_interval=%d min)", self.config.app.poll_interval_minutes, self.quota_interval_minutes)
+        logger.info("Polling started (interval=%d sec, quota_interval=%d min)", self.config.app.poll_interval_seconds, self.quota_interval_minutes)
         self.repo.insert_event(datetime.now(timezone.utc), "monitor_started", "Polling started")
-        step = min(self.config.app.poll_interval_minutes * 60, self.quota_interval_minutes * 60)
+        # 首次延迟与 elapsed 都用当前 step；之后每轮重新读取 config，支持热更新
+        step = min(self.config.app.poll_interval_seconds, self.quota_interval_minutes * 60)
         elapsed = step
         while self._running:
             await asyncio.sleep(step)
@@ -91,6 +92,8 @@ class Poller:
                         datetime.now(timezone.utc), "quota_error", str(e),
                     )
                 elapsed = 0
+            # 每轮重算 step，让设置面板修改后的间隔尽快生效
+            step = min(self.config.app.poll_interval_seconds, self.quota_interval_minutes * 60)
 
     def stop(self):
         self._running = False

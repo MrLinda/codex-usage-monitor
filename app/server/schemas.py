@@ -34,6 +34,6 @@ class CollectNowResponse(BaseModel):
 
 
 class SettingsUpdate(BaseModel):
-    poll_interval_minutes: int | None = None
+    poll_interval_seconds: int | None = None
     five_hour_warning_pct: int | None = None
     weekly_warning_pct: int | None = None

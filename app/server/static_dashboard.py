@@ -78,7 +78,8 @@ h2 { font-size: 16px; margin-bottom: 12px; color: #f0f6fc; }
   <div style="margin-left:auto;display:flex;gap:12px;align-items:center">
     <button id="refreshAll" style="background:#1f6feb;color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:13px;cursor:pointer">全部刷新</button>
     <span style="color:#8b949e;font-size:12px">限额刷新 <select id="quotaInterval" style="background:#161b22;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:4px 8px;font-size:13px;cursor:pointer"><option value="5">5m</option><option value="10" selected>10m</option><option value="15">15m</option><option value="30">30m</option></select></span>
-    <span style="color:#8b949e;font-size:12px">token刷新 <select id="refreshInterval" style="background:#161b22;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:4px 8px;font-size:13px;cursor:pointer"><option value="10000">10s</option><option value="30000" selected>30s</option><option value="60000">1m</option></select></span>
+    <span style="color:#8b949e;font-size:12px">token刷新 <select id="pollInterval" style="background:#161b22;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:4px 8px;font-size:13px;cursor:pointer"><option value="10">10s</option><option value="30">30s</option><option value="60">1m</option><option value="300">5m</option><option value="600" selected>10m</option></select></span>
+    <span style="color:#8b949e;font-size:12px">刷新 <select id="refreshInterval" style="background:#161b22;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:4px 8px;font-size:13px;cursor:pointer"><option value="10000">10s</option><option value="30000" selected>30s</option><option value="60000">1m</option></select></span>
   </div>
 </div>
 
@@ -712,14 +713,54 @@ document.getElementById('quotaInterval').addEventListener('change', async () => 
   await fetch('/api/quota/interval', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({minutes}) });
 });
 
-async function initQuotaInterval() {
+async function syncQuotaInterval() {
   try {
     const res = await fetch('/api/quota/interval');
     const data = await res.json();
-    document.getElementById('quotaInterval').value = String(data.minutes);
+    const sel = document.getElementById('quotaInterval');
+    const value = String(data.minutes);
+    // 若值不在预设选项中（GUI 设置面板可填任意分钟），动态插入"自定义"选项
+    if (![...sel.options].some(o => o.value === value)) {
+      [...sel.options].forEach(o => { if (o.dataset.custom) o.remove(); });
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = `${value}m`;
+      opt.dataset.custom = '1';
+      sel.appendChild(opt);
+    }
+    if (sel.value !== value) sel.value = value;
   } catch {}
 }
-initQuotaInterval();
+syncQuotaInterval();
+// 跟着前端轮询节奏一起同步，让 GUI 设置面板的修改在网页上自动反映
+setInterval(syncQuotaInterval, 30000);
+
+document.getElementById('pollInterval').addEventListener('change', async () => {
+  const seconds = parseInt(document.getElementById('pollInterval').value);
+  await fetch('/api/poll/interval', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({seconds}) });
+});
+
+async function syncPollInterval() {
+  try {
+    const res = await fetch('/api/poll/interval');
+    const data = await res.json();
+    const sel = document.getElementById('pollInterval');
+    const value = String(data.seconds);
+    if (![...sel.options].some(o => o.value === value)) {
+      [...sel.options].forEach(o => { if (o.dataset.custom) o.remove(); });
+      const opt = document.createElement('option');
+      opt.value = value;
+      // 整分钟显示 Xm，否则显示 Xs
+      const sec = data.seconds;
+      opt.textContent = (sec >= 60 && sec % 60 === 0) ? `${sec / 60}m` : `${sec}s`;
+      opt.dataset.custom = '1';
+      sel.appendChild(opt);
+    }
+    if (sel.value !== value) sel.value = value;
+  } catch {}
+}
+syncPollInterval();
+setInterval(syncPollInterval, 30000);
 
 document.getElementById('refreshAll').addEventListener('click', async () => {
   const btn = document.getElementById('refreshAll');

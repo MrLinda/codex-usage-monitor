@@ -4,11 +4,13 @@ import json
 import logging
 import threading
 import tkinter as tk
-from tkinter import scrolledtext
+from tkinter import messagebox, scrolledtext, ttk
 from urllib.request import urlopen
 
 import pystray
 from PIL import Image, ImageDraw, ImageTk
+
+from app.config import Config, save_config
 
 logger = logging.getLogger("codex_usage_monitor")
 
@@ -78,7 +80,8 @@ def _fetch_quota() -> dict | None:
 
 
 class App:
-    def __init__(self):
+    def __init__(self, config: Config | None = None):
+        self.config = config
         self.root = tk.Tk()
         self.root.title("Codex Usage Monitor")
         self.root.geometry("600x400")
@@ -117,6 +120,12 @@ class App:
 
         tk.Button(
             top_frame, text="最小化到托盘", command=self._minimize_to_tray,
+            bg="#21262d", fg="#c9d1d9", relief=tk.FLAT, padx=12, pady=4,
+            cursor="hand2",
+        ).pack(side=tk.RIGHT, padx=(0, 8))
+
+        tk.Button(
+            top_frame, text="设置", command=self._open_settings,
             bg="#21262d", fg="#c9d1d9", relief=tk.FLAT, padx=12, pady=4,
             cursor="hand2",
         ).pack(side=tk.RIGHT, padx=(0, 8))
@@ -266,6 +275,12 @@ class App:
         import webbrowser
         webbrowser.open(DASHBOARD_URL)
 
+    def _open_settings(self):
+        if self.config is None:
+            messagebox.showwarning("设置", "未加载配置，无法编辑")
+            return
+        SettingsDialog(self.root, self.config)
+
     def _minimize_to_tray(self):
         self.root.withdraw()
 
@@ -278,3 +293,121 @@ class App:
 
     def run(self):
         self.root.mainloop()
+
+
+class SettingsDialog:
+    """模态设置子窗口。
+
+    目前包含：
+    - token 采集间隔（秒）
+    - 额度采集间隔（分钟）
+
+    保存时：写入 config.toml 持久化，并热更新内存中的 Config 与正在运行的 Poller。
+    """
+
+    def __init__(self, parent: tk.Tk, config: Config):
+        self.config = config
+        self.top = tk.Toplevel(parent)
+        self.top.title("设置")
+        self.top.configure(bg="#0d1117")
+        self.top.transient(parent)
+        self.top.grab_set()  # 模态
+
+        self.token_var = tk.IntVar(value=config.app.poll_interval_seconds)
+        self.quota_var = tk.IntVar(value=config.app.quota_interval_minutes)
+
+        self._build_ui()
+
+        # 居中
+        self.top.update_idletasks()
+        w, h = self.top.winfo_reqwidth(), self.top.winfo_reqheight()
+        sx, sy = self.top.winfo_screenwidth(), self.top.winfo_screenheight()
+        self.top.geometry(f"{w}x{h}+{(sx - w) // 2}+{(sy - h) // 2}")
+        self.top.resizable(False, False)
+
+    def _build_ui(self):
+        body = tk.Frame(self.top, bg="#0d1117", padx=20, pady=16)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(
+            body, text="采集间隔", fg="#f0f6fc", bg="#0d1117",
+            font=("Segoe UI", 11, "bold"),
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
+
+        # token 间隔
+        tk.Label(
+            body, text="Token 采集间隔（秒）", fg="#c9d1d9", bg="#0d1117",
+            font=("Segoe UI", 9),
+        ).grid(row=1, column=0, sticky="w", pady=4)
+        token_spin = ttk.Spinbox(body, from_=10, to=14400, increment=10, textvariable=self.token_var, width=8)
+        token_spin.grid(row=1, column=1, sticky="w", padx=(8, 0))
+        tk.Label(
+            body, text="读取 ~/.codex/sessions 的 token 用量（常用：60=1m, 600=10m, 1800=30m）", fg="#6e7681",
+            bg="#0d1117", font=("Segoe UI", 8),
+        ).grid(row=2, column=0, columnspan=3, sticky="w", pady=(0, 8))
+
+        # quota 间隔
+        tk.Label(
+            body, text="额度采集间隔（分钟）", fg="#c9d1d9", bg="#0d1117",
+            font=("Segoe UI", 9),
+        ).grid(row=3, column=0, sticky="w", pady=4)
+        quota_spin = ttk.Spinbox(body, from_=1, to=240, textvariable=self.quota_var, width=8)
+        quota_spin.grid(row=3, column=1, sticky="w", padx=(8, 0))
+        tk.Label(
+            body, text="调用 ChatGPT API 获取 5h / 周配额", fg="#6e7681",
+            bg="#0d1117", font=("Segoe UI", 8),
+        ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(0, 12))
+
+        # 按钮
+        btn_frame = tk.Frame(body, bg="#0d1117")
+        btn_frame.grid(row=5, column=0, columnspan=3, sticky="e", pady=(8, 0))
+        tk.Button(
+            btn_frame, text="取消", command=self._on_cancel,
+            bg="#21262d", fg="#c9d1d9", relief=tk.FLAT, padx=14, pady=4,
+            cursor="hand2",
+        ).pack(side=tk.RIGHT, padx=(8, 0))
+        tk.Button(
+            btn_frame, text="保存", command=self._on_save,
+            bg="#1f6feb", fg="white", relief=tk.FLAT, padx=14, pady=4,
+            cursor="hand2",
+        ).pack(side=tk.RIGHT)
+
+    def _on_cancel(self):
+        self.top.destroy()
+
+    def _on_save(self):
+        try:
+            token_sec = int(self.token_var.get())
+            quota_min = int(self.quota_var.get())
+        except (tk.TclError, ValueError):
+            messagebox.showerror("设置", "间隔必须是整数")
+            return
+        if token_sec < 10:
+            messagebox.showerror("设置", "Token 采集间隔必须 >= 10 秒")
+            return
+        if quota_min < 1:
+            messagebox.showerror("设置", "额度采集间隔必须 >= 1 分钟")
+            return
+
+        # 1) 持久化到 config.toml
+        self.config.app.poll_interval_seconds = token_sec
+        self.config.app.quota_interval_minutes = quota_min
+        try:
+            save_config(self.config)
+        except Exception as e:
+            logger.error("保存 config.toml 失败: %s", e)
+            messagebox.showerror("设置", f"保存失败: {e}")
+            return
+
+        # 2) 热更新正在运行的 poller
+        try:
+            import app.server.api as api_module
+            if api_module._poller is not None:
+                api_module._poller.quota_interval_minutes = quota_min
+                # poll_interval_seconds 通过 self.config.app 引用，已在 1) 中更新；
+                # poller 每轮重算 step，下个采集周期生效
+        except Exception as e:
+            logger.warning("热更新 poller 失败（重启后生效）: %s", e)
+
+        logger.info("设置已保存：token=%d 秒, 额度=%d 分钟", token_sec, quota_min)
+        self.top.destroy()
