@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 import threading
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, ttk
@@ -15,6 +16,35 @@ from app.config import Config, save_config
 logger = logging.getLogger("codex_usage_monitor")
 
 DASHBOARD_URL = "http://127.0.0.1:8765"
+
+
+def _enable_dpi_awareness() -> float:
+    """Windows 高 DPI 适配。
+
+    在创建 Tk() 之前调用。返回当前显示器的缩放比例（96 DPI = 1.0），
+    供 tk.call('tk', 'scaling', factor) 使用，让字体按真实 DPI 渲染，
+    避免位图被 Windows 拉伸导致的模糊。
+    """
+    if sys.platform != "win32":
+        return 1.0
+    try:
+        import ctypes
+        # Per-Monitor V2：多显示器切换时也能重新适配
+        try:
+            ctypes.windll.user32.SetProcessDpiAwarenessContext(-4)  # PER_MONITOR_AWARE_V2
+        except Exception:
+            try:
+                ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PER_MONITOR_DPI_AWARE
+            except Exception:
+                ctypes.windll.user32.SetProcessDPIAware()
+        # 读取主显示器的 DPI
+        hdc = ctypes.windll.user32.GetDC(0)
+        dpi = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)  # LOGPIXELSX
+        ctypes.windll.user32.ReleaseDC(0, hdc)
+        return max(1.0, dpi / 96.0)
+    except Exception as e:
+        logger.warning("DPI awareness 设置失败: %s", e)
+        return 1.0
 
 
 class LogHandler(logging.Handler):
@@ -82,12 +112,28 @@ def _fetch_quota() -> dict | None:
 class App:
     def __init__(self, config: Config | None = None):
         self.config = config
+        # Tk() 之前必须先 set DPI awareness，否则字体会因位图缩放变糊
+        self._dpi_scale = _enable_dpi_awareness()
         self.root = tk.Tk()
+        # 让 tk 的逻辑像素跟随真实 DPI，所有像素 / 字号自动按比例放大
+        self.root.tk.call("tk", "scaling", self._dpi_scale * 96.0 / 72.0)
+        # 把 tk 的命名字体（messagebox / ttk.Spinbox / 默认控件）也换成中英文兼容的字体
+        try:
+            import tkinter.font as tkfont
+            for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont", "TkCaptionFont", "TkSmallCaptionFont", "TkIconFont", "TkTooltipFont"):
+                try:
+                    tkfont.nametofont(name).configure(family="Microsoft YaHei UI")
+                except tk.TclError:
+                    pass
+        except Exception as e:
+            logger.warning("命名字体配置失败: %s", e)
         self.root.title("Codex Usage Monitor")
-        self.root.geometry("600x400")
+        # 主窗口物理尺寸也按 DPI 放大，避免 100% 时正常但 150% 时窗口偏小
+        w = int(600 * self._dpi_scale)
+        h = int(400 * self._dpi_scale)
+        self.root.geometry(f"{w}x{h}")
         self.root.configure(bg="#0d1117")
         self.root.update_idletasks()
-        w, h = 600, 400
         x = (self.root.winfo_screenwidth() - w) // 2
         y = (self.root.winfo_screenheight() - h) // 2
         self.root.geometry(f"{w}x{h}+{x}+{y}")
@@ -109,7 +155,7 @@ class App:
 
         tk.Label(
             top_frame, text="Codex Usage Monitor", fg="#f0f6fc",
-            bg="#161b22", font=("Segoe UI", 14, "bold"),
+            bg="#161b22", font=("Microsoft YaHei UI", 14, "bold"),
         ).pack(side=tk.LEFT)
 
         tk.Button(
@@ -181,7 +227,7 @@ class App:
         popup.configure(bg="#161b22")
         popup.attributes("-topmost", True)
 
-        loading = tk.Label(popup, text="加载中...", fg="#8b949e", bg="#161b22", font=("Segoe UI", 10), padx=24, pady=20)
+        loading = tk.Label(popup, text="加载中...", fg="#8b949e", bg="#161b22", font=("Microsoft YaHei UI", 10), padx=24, pady=20)
         loading.pack()
         popup.update_idletasks()
         pw, ph = popup.winfo_reqwidth(), popup.winfo_reqheight()
@@ -212,8 +258,8 @@ class App:
         if not q:
             content = tk.Frame(popup, bg="#161b22", padx=24, pady=20)
             content.pack()
-            tk.Label(content, text="暂无数据", fg="#8b949e", bg="#161b22", font=("Segoe UI", 10)).pack()
-            tk.Button(content, text="关闭", command=popup.destroy, bg="#21262d", fg="#c9d1d9", relief=tk.FLAT, padx=8, pady=2, font=("Segoe UI", 9), cursor="hand2").pack(pady=(8, 0))
+            tk.Label(content, text="暂无数据", fg="#8b949e", bg="#161b22", font=("Microsoft YaHei UI", 10)).pack()
+            tk.Button(content, text="关闭", command=popup.destroy, bg="#21262d", fg="#c9d1d9", relief=tk.FLAT, padx=8, pady=2, font=("Microsoft YaHei UI", 9), cursor="hand2").pack(pady=(8, 0))
             return
 
         fh_pct = q.get("five_hour_remaining_pct")
@@ -227,10 +273,10 @@ class App:
         content.pack()
 
         if email:
-            tk.Label(content, text=email, fg="#8b949e", bg="#161b22", font=("Segoe UI", 9)).pack(anchor="w")
-        tk.Label(content, text=f"套餐: {plan}", fg="#f0f6fc", bg="#161b22", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 8))
+            tk.Label(content, text=email, fg="#8b949e", bg="#161b22", font=("Microsoft YaHei UI", 9)).pack(anchor="w")
+        tk.Label(content, text=f"套餐: {plan}", fg="#f0f6fc", bg="#161b22", font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w", pady=(0, 8))
 
-        tk.Label(content, text="5 小时剩余", fg="#8b949e", bg="#161b22", font=("Segoe UI", 9)).pack(anchor="w")
+        tk.Label(content, text="5 小时剩余", fg="#8b949e", bg="#161b22", font=("Microsoft YaHei UI", 9)).pack(anchor="w")
         bar_frame_5h = tk.Frame(content, bg="#161b22")
         bar_frame_5h.pack(fill=tk.X, pady=(0, 2))
         pct_5h = int(fh_pct) if fh_pct is not None else 0
@@ -239,10 +285,10 @@ class App:
         bg_bar.pack(fill=tk.X, side=tk.LEFT, expand=True)
         fg_bar = tk.Frame(bg_bar, bg=c_5h, height=6)
         fg_bar.place(x=0, y=0, relwidth=max(0.01, pct_5h / 100), relheight=1)
-        tk.Label(bar_frame_5h, text=f"{pct_5h}%", fg=c_5h, bg="#161b22", font=("Segoe UI", 9), width=4).pack(side=tk.LEFT, padx=(6, 0))
-        tk.Label(content, text=f"  还剩 {_fmt_countdown(fh_reset)}", fg="#8b949e", bg="#161b22", font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 6))
+        tk.Label(bar_frame_5h, text=f"{pct_5h}%", fg=c_5h, bg="#161b22", font=("Microsoft YaHei UI", 9), width=4).pack(side=tk.LEFT, padx=(6, 0))
+        tk.Label(content, text=f"  还剩 {_fmt_countdown(fh_reset)}", fg="#8b949e", bg="#161b22", font=("Microsoft YaHei UI", 9)).pack(anchor="w", pady=(0, 6))
 
-        tk.Label(content, text="周剩余", fg="#8b949e", bg="#161b22", font=("Segoe UI", 9)).pack(anchor="w")
+        tk.Label(content, text="周剩余", fg="#8b949e", bg="#161b22", font=("Microsoft YaHei UI", 9)).pack(anchor="w")
         bar_frame_wk = tk.Frame(content, bg="#161b22")
         bar_frame_wk.pack(fill=tk.X, pady=(0, 2))
         pct_wk = int(wk_pct) if wk_pct is not None else 0
@@ -251,13 +297,13 @@ class App:
         bg_bar_wk.pack(fill=tk.X, side=tk.LEFT, expand=True)
         fg_bar_wk = tk.Frame(bg_bar_wk, bg=c_wk, height=6)
         fg_bar_wk.place(x=0, y=0, relwidth=max(0.01, pct_wk / 100), relheight=1)
-        tk.Label(bar_frame_wk, text=f"{pct_wk}%", fg=c_wk, bg="#161b22", font=("Segoe UI", 9), width=4).pack(side=tk.LEFT, padx=(6, 0))
-        tk.Label(content, text=f"  还剩 {_fmt_countdown(wk_reset)}", fg="#8b949e", bg="#161b22", font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 6))
+        tk.Label(bar_frame_wk, text=f"{pct_wk}%", fg=c_wk, bg="#161b22", font=("Microsoft YaHei UI", 9), width=4).pack(side=tk.LEFT, padx=(6, 0))
+        tk.Label(content, text=f"  还剩 {_fmt_countdown(wk_reset)}", fg="#8b949e", bg="#161b22", font=("Microsoft YaHei UI", 9)).pack(anchor="w", pady=(0, 6))
 
         btn_frame = tk.Frame(content, bg="#161b22")
         btn_frame.pack(fill=tk.X, pady=(4, 0))
-        tk.Button(btn_frame, text="打开控制台", command=lambda: [popup.destroy(), self._open_dashboard()], bg="#1f6feb", fg="white", relief=tk.FLAT, padx=8, pady=2, font=("Segoe UI", 9), cursor="hand2").pack(side=tk.LEFT)
-        tk.Button(btn_frame, text="显示窗口", command=lambda: [popup.destroy(), self._show_window()], bg="#21262d", fg="#c9d1d9", relief=tk.FLAT, padx=8, pady=2, font=("Segoe UI", 9), cursor="hand2").pack(side=tk.LEFT, padx=(8, 0))
+        tk.Button(btn_frame, text="打开控制台", command=lambda: [popup.destroy(), self._open_dashboard()], bg="#1f6feb", fg="white", relief=tk.FLAT, padx=8, pady=2, font=("Microsoft YaHei UI", 9), cursor="hand2").pack(side=tk.LEFT)
+        tk.Button(btn_frame, text="显示窗口", command=lambda: [popup.destroy(), self._show_window()], bg="#21262d", fg="#c9d1d9", relief=tk.FLAT, padx=8, pady=2, font=("Microsoft YaHei UI", 9), cursor="hand2").pack(side=tk.LEFT, padx=(8, 0))
 
         popup.update_idletasks()
         pw, ph = popup.winfo_reqwidth(), popup.winfo_reqheight()
@@ -331,31 +377,31 @@ class SettingsDialog:
 
         tk.Label(
             body, text="采集间隔", fg="#f0f6fc", bg="#0d1117",
-            font=("Segoe UI", 11, "bold"),
+            font=("Microsoft YaHei UI", 11, "bold"),
         ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
 
         # token 间隔
         tk.Label(
             body, text="Token 采集间隔（秒）", fg="#c9d1d9", bg="#0d1117",
-            font=("Segoe UI", 9),
+            font=("Microsoft YaHei UI", 9),
         ).grid(row=1, column=0, sticky="w", pady=4)
         token_spin = ttk.Spinbox(body, from_=10, to=14400, increment=10, textvariable=self.token_var, width=8)
         token_spin.grid(row=1, column=1, sticky="w", padx=(8, 0))
         tk.Label(
             body, text="读取 ~/.codex/sessions 的 token 用量（常用：60=1m, 600=10m, 1800=30m）", fg="#6e7681",
-            bg="#0d1117", font=("Segoe UI", 8),
+            bg="#0d1117", font=("Microsoft YaHei UI", 8),
         ).grid(row=2, column=0, columnspan=3, sticky="w", pady=(0, 8))
 
         # quota 间隔
         tk.Label(
             body, text="额度采集间隔（分钟）", fg="#c9d1d9", bg="#0d1117",
-            font=("Segoe UI", 9),
+            font=("Microsoft YaHei UI", 9),
         ).grid(row=3, column=0, sticky="w", pady=4)
         quota_spin = ttk.Spinbox(body, from_=1, to=240, textvariable=self.quota_var, width=8)
         quota_spin.grid(row=3, column=1, sticky="w", padx=(8, 0))
         tk.Label(
             body, text="调用 ChatGPT API 获取 5h / 周配额", fg="#6e7681",
-            bg="#0d1117", font=("Segoe UI", 8),
+            bg="#0d1117", font=("Microsoft YaHei UI", 8),
         ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(0, 12))
 
         # 按钮
