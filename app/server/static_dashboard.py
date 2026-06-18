@@ -132,8 +132,10 @@ h2 { font-size: 16px; margin-bottom: 12px; color: #f0f6fc; }
     <div class="window-selector">
       <button class="usage-btn active" data-preset="24h">近 24h</button>
       <button class="usage-btn" data-preset="7d">近 7 天</button>
+      <button class="usage-btn" data-preset="30d">近 30 天</button>
       <button class="usage-btn" data-preset="today">今天</button>
       <button class="usage-btn" data-preset="week">这周</button>
+      <button class="usage-btn" data-preset="month">这月</button>
     </div>
     <div></div>
   </div>
@@ -266,14 +268,14 @@ function renderOverview(d) {
     <div class="card" style="flex:2;min-width:320px">
       <div class="label">总计</div>
       <div style="display:flex;justify-content:space-between;align-items:baseline"><div class="value">${fmtNum(s.total_tokens)}</div><div class="value" style="color:#d29922;font-size:22px">${fmt$(s.total_cost)}</div></div>
-      <div class="sub">${fmt(s.total_entries)} 次请求</div>
+      <div class="sub">${fmt(s.total_entries)} 次请求${s.total_input > 0 ? ` · <span style="color:#a371f7">缓存命中 ${(s.total_cached / s.total_input * 100).toFixed(1)}%</span>` : ''}</div>
       <div class="bar-stack"><div style="width:${pct(uncached)}%;background:#58a6ff"></div><div style="width:${pct(s.total_cached)}%;background:#a371f7"></div><div style="width:${pct(s.total_output)}%;background:#f85149"></div></div>
       <div class="token-row"><div><div class="num">${fmtNum(uncached)}</div><div class="lbl">输入</div></div><div><div class="num">${fmtNum(s.total_cached)}</div><div class="lbl">缓存读取</div></div><div><div class="num">${fmtNum(s.total_output)}</div><div class="lbl">输出</div></div></div>
     </div>
     <div class="card" style="flex:2;min-width:320px">
       <div class="label">今日</div>
       <div style="display:flex;justify-content:space-between;align-items:baseline"><div class="value">${fmtNum(today.total_tokens)}</div><div class="value" style="color:#d29922;font-size:22px">${fmt$(today.estimated_cost_usd)}</div></div>
-      <div class="sub">${fmt(today.entries)} 次请求</div>
+      <div class="sub">${fmt(today.entries)} 次请求${today.input_tokens > 0 ? ` · <span style="color:#a371f7">缓存命中 ${(today.cached_input_tokens / today.input_tokens * 100).toFixed(1)}%</span>` : ''}</div>
       <div class="bar-stack"><div style="width:${today.total_tokens > 0 ? ((today.input_tokens - today.cached_input_tokens) / today.total_tokens * 100).toFixed(0) : 0}%;background:#58a6ff"></div><div style="width:${today.total_tokens > 0 ? (today.cached_input_tokens / today.total_tokens * 100).toFixed(0) : 0}%;background:#a371f7"></div><div style="width:${today.total_tokens > 0 ? (today.output_tokens / today.total_tokens * 100).toFixed(0) : 0}%;background:#f85149"></div></div>
       <div class="token-row"><div><div class="num">${fmtNum(today.input_tokens - today.cached_input_tokens)}</div><div class="lbl">输入</div></div><div><div class="num">${fmtNum(today.cached_input_tokens)}</div><div class="lbl">缓存读取</div></div><div><div class="num">${fmtNum(today.output_tokens)}</div><div class="lbl">输出</div></div></div>
     </div>
@@ -597,6 +599,8 @@ function getUsageRange() {
     from = new Date(now.getTime() - 24 * 3600 * 1000).toISOString();
   } else if (selectedPreset === '7d') {
     from = new Date(now.getTime() - 7 * 24 * 3600 * 1000).toISOString();
+  } else if (selectedPreset === '30d') {
+    from = new Date(now.getTime() - 30 * 24 * 3600 * 1000).toISOString();
   } else if (selectedPreset === 'today') {
     const start = new Date(now);
     start.setHours(0, 0, 0, 0);
@@ -605,6 +609,9 @@ function getUsageRange() {
     const start = new Date(now);
     start.setDate(start.getDate() - start.getDay());
     start.setHours(0, 0, 0, 0);
+    from = start.toISOString();
+  } else if (selectedPreset === 'month') {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
     from = start.toISOString();
   }
   return { from, to };
@@ -620,6 +627,8 @@ async function loadUsageData() {
 
 function renderUsage(d) {
   const rows = d.rows || d.tokenUsage || [];
+  // 跨度 > 7 天则按天聚合，避免趋势图 X 轴过密
+  const longRange = selectedPreset === '30d' || selectedPreset === 'month';
   let input = 0, cached = 0, output = 0, reasoning = 0, cost = 0;
   const models = {};
   const buckets = {};
@@ -634,7 +643,9 @@ function renderUsage(d) {
     if (!models[m]) models[m] = { input: 0, cached: 0, output: 0, cost: 0 };
     models[m].input += inp; models[m].cached += cac; models[m].output += out; models[m].cost += cst;
     const date = new Date(r.event_time);
-    const key = date.toLocaleDateString() + ' ' + date.getHours() + ':00';
+    const key = longRange
+      ? date.toLocaleDateString()
+      : date.toLocaleDateString() + ' ' + date.getHours() + ':00';
     if (!buckets[key]) buckets[key] = { tokens: 0, cost: 0 };
     buckets[key].tokens += (inp + out);
     buckets[key].cost += cst;
@@ -642,18 +653,32 @@ function renderUsage(d) {
   const total = input + output;
   const uncached = input - cached;
 
+  const modelNames = Object.keys(models).sort((a, b) => models[b].cost - models[a].cost);
+
   document.getElementById('usageCards').innerHTML = `
     <div class="card" style="flex:2;min-width:320px">
       <div class="label">用量统计</div>
       <div style="display:flex;justify-content:space-between;align-items:baseline"><div class="value">${fmtNum(total)}</div><div class="value" style="color:#d29922;font-size:22px">${fmt$(cost)}</div></div>
-      <div class="sub">${rows.length} 次请求</div>
+      <div class="sub">${rows.length} 次请求${input > 0 ? ` · <span style="color:#a371f7">缓存命中 ${(cached / input * 100).toFixed(1)}%</span>` : ''}</div>
       <div class="bar-stack"><div style="width:${total > 0 ? (uncached / total * 100).toFixed(0) : 0}%;background:#58a6ff"></div><div style="width:${total > 0 ? (cached / total * 100).toFixed(0) : 0}%;background:#a371f7"></div><div style="width:${total > 0 ? (output / total * 100).toFixed(0) : 0}%;background:#f85149"></div></div>
       <div class="token-row"><div><div class="num">${fmtNum(uncached)}</div><div class="lbl">输入</div></div><div><div class="num">${fmtNum(cached)}</div><div class="lbl">缓存读取</div></div><div><div class="num">${fmtNum(output)}</div><div class="lbl">输出</div></div></div>
     </div>
-    <div class="card"><div class="label">模型数</div><div class="value">${Object.keys(models).length}</div></div>
+    <div class="card" style="display:flex;flex-direction:column">
+      <div class="label">使用模型 (${modelNames.length})</div>
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;flex:1;overflow:hidden">
+        ${modelNames.map((m, i) => `
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;line-height:1.4">
+            <span style="display:flex;align-items:center;gap:8px;color:#c9d1d9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${COLORS[i % COLORS.length]};flex-shrink:0"></span>
+              ${m}
+            </span>
+            <span style="color:#d29922;font-variant-numeric:tabular-nums;flex-shrink:0;margin-left:8px">${fmt$(models[m].cost)}</span>
+          </div>
+        `).join('') || '<div style="color:#6e7681;font-size:13px">暂无数据</div>'}
+      </div>
+    </div>
   `;
 
-  const modelNames = Object.keys(models).sort((a, b) => models[b].cost - models[a].cost);
   destroyChart('usageModelChart');
   if (modelNames.length > 0) {
     charts.usageModelChart = new Chart(document.getElementById('usageModelChart'), {
@@ -693,7 +718,7 @@ function renderUsage(d) {
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { title: { display: true, text: 'Token 和成本趋势（按小时）', color: '#c9d1d9' }, legend: { labels: { color: '#c9d1d9' } } },
+        plugins: { title: { display: true, text: longRange ? 'Token 和成本趋势（按天）' : 'Token 和成本趋势（按小时）', color: '#c9d1d9' }, legend: { labels: { color: '#c9d1d9' } } },
         scales: { x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } }, y: { type: 'linear', position: 'left', ticks: { color: '#58a6ff', callback: (v) => fmt(v) }, grid: { color: '#21262d' } }, y1: { type: 'linear', position: 'right', ticks: { color: '#d29922', callback: (v) => fmt$(v) }, grid: { display: false } } },
       },
     });
