@@ -27,14 +27,8 @@ class Poller:
 
     async def collect_once(self) -> int:
         entries = await self.session_collector.collect()
-        count = 0
-        for entry in entries:
-            existing = self.repo.get_token_usage(
-                from_dt=entry.event_time, to_dt=entry.event_time, limit=1
-            )
-            if not existing:
-                self.repo.insert_token_usage(entry)
-                count += 1
+        # 一次性批量插入，INSERT OR IGNORE + 唯一索引负责去重，避免 N+1 SELECT
+        count = self.repo.insert_token_usage_batch(entries)
 
         now = datetime.now(timezone.utc)
         if entries:

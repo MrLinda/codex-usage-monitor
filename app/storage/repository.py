@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime
-from typing import Any
+from typing import Any, Iterable
 
 from app.models import TokenUsage, QuotaSample
 
@@ -14,7 +14,7 @@ class Repository:
 
     def insert_token_usage(self, usage: TokenUsage) -> int:
         cur = self.conn.execute(
-            """INSERT INTO token_usage_logs
+            """INSERT OR IGNORE INTO token_usage_logs
                (event_time, session_id, model, input_tokens, output_tokens,
                 cached_input_tokens, reasoning_tokens, estimated_cost_usd, raw_json)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -32,6 +32,43 @@ class Repository:
         )
         self.conn.commit()
         return cur.lastrowid
+
+    def insert_token_usage_batch(self, usages: Iterable[TokenUsage]) -> int:
+        """批量插入并自动去重，返回实际新增行数。
+
+        - INSERT OR IGNORE 配合 (event_time, session_id, model) 唯一索引，
+          重复行直接被 SQLite 跳过，避免 N+1 SELECT 去重。
+        - 整批一个事务、一次 commit，相比逐条 commit 节省大量 fsync。
+        """
+        rows = [
+            (
+                u.event_time.isoformat(),
+                u.session_id,
+                u.model,
+                u.input_tokens,
+                u.output_tokens,
+                u.cached_input_tokens,
+                u.reasoning_tokens,
+                u.estimated_cost_usd,
+                u.raw_json,
+            )
+            for u in usages
+        ]
+        if not rows:
+            return 0
+        # executemany 之后 changes() 只反映最后一条语句，不可靠；
+        # 用 COUNT 前后差值统计实际新增行数。
+        before = self.conn.execute("SELECT COUNT(*) FROM token_usage_logs").fetchone()[0]
+        with self.conn:
+            self.conn.executemany(
+                """INSERT OR IGNORE INTO token_usage_logs
+                   (event_time, session_id, model, input_tokens, output_tokens,
+                    cached_input_tokens, reasoning_tokens, estimated_cost_usd, raw_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                rows,
+            )
+        after = self.conn.execute("SELECT COUNT(*) FROM token_usage_logs").fetchone()[0]
+        return after - before
 
     def get_token_usage(
         self, from_dt: datetime | None = None, to_dt: datetime | None = None, limit: int = 10000

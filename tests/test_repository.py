@@ -41,10 +41,11 @@ def test_insert_and_retrieve(repo):
 
 
 def test_summary(repo):
-    now = datetime.now(timezone.utc)
+    base = datetime.now(timezone.utc)
+    # 同一 session/model 下，event_time 不同才会被当作不同行（去重唯一索引）
     for i in range(3):
         repo.insert_token_usage(TokenUsage(
-            event_time=now,
+            event_time=base.replace(microsecond=i),
             session_id="s1",
             model="gpt-4o",
             input_tokens=100,
@@ -59,6 +60,27 @@ def test_summary(repo):
     assert summary["total_tokens"] == 900
     assert summary["model_count"] == 1
     assert summary["session_count"] == 1
+
+
+def test_batch_insert_dedup(repo):
+    """批量插入：相同 (event_time, session_id, model) 的行应被唯一索引去重。"""
+    base = datetime.now(timezone.utc)
+    entries = [
+        TokenUsage(event_time=base, session_id="s1", model="gpt-4o",
+                   input_tokens=100, output_tokens=200, cached_input_tokens=0,
+                   reasoning_tokens=0, estimated_cost_usd=0.001),
+        # 与第一条完全相同 → 应被去重
+        TokenUsage(event_time=base, session_id="s1", model="gpt-4o",
+                   input_tokens=100, output_tokens=200, cached_input_tokens=0,
+                   reasoning_tokens=0, estimated_cost_usd=0.001),
+        # 不同 session → 保留
+        TokenUsage(event_time=base, session_id="s2", model="gpt-4o",
+                   input_tokens=50, output_tokens=10, cached_input_tokens=0,
+                   reasoning_tokens=0, estimated_cost_usd=0.0005),
+    ]
+    inserted = repo.insert_token_usage_batch(entries)
+    assert inserted == 2
+    assert repo.get_summary()["total_entries"] == 2
 
 
 def test_model_breakdown(repo):
