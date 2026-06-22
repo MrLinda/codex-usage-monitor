@@ -223,6 +223,50 @@ def api_quota_status():
     return latest or {"error": "no quota data yet"}
 
 
+@app.get("/api/quota/refresh-and-status")
+async def api_quota_refresh_and_status():
+    """供托盘左键弹窗调用：同步触发一次配额 + token 采集，再返回最新状态。
+
+    与 /api/collect-now 共用同一套采集逻辑，但额外把最新配额和两个窗口
+    的 token 用量打包返回，省去前端再发一次请求。
+    """
+    from datetime import timedelta
+
+    if not _poller:
+        return {"error": "poller not available"}
+
+    try:
+        await _poller.collect_once()
+    except Exception as e:
+        logger.error("refresh token collect failed: %s", e)
+    try:
+        await _poller.collect_quota_once()
+    except Exception as e:
+        logger.error("refresh quota collect failed: %s", e)
+
+    repo = get_repo()
+    latest = repo.get_latest_quota()
+    if not latest:
+        return {"quota": None, "usage": None}
+
+    usage = {"five_hour": None, "weekly": None}
+    fh_reset = latest.get("five_hour_reset_at")
+    fh_window = latest.get("five_hour_window_seconds")
+    if fh_reset and fh_window:
+        reset_dt = datetime.fromisoformat(fh_reset)
+        window_start = reset_dt - timedelta(seconds=fh_window)
+        usage["five_hour"] = repo.get_windowed_usage(window_start, reset_dt)
+
+    wk_reset = latest.get("weekly_reset_at")
+    wk_window = latest.get("weekly_window_seconds")
+    if wk_reset and wk_window:
+        reset_dt = datetime.fromisoformat(wk_reset)
+        window_start = reset_dt - timedelta(seconds=wk_window)
+        usage["weekly"] = repo.get_windowed_usage(window_start, reset_dt)
+
+    return {"quota": latest, "usage": usage}
+
+
 @app.get("/api/quota/history")
 def api_quota_history(
     limit: int = 500,

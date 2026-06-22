@@ -96,16 +96,14 @@ def _fmt_countdown(iso_str: str | None) -> str:
 
 def _fetch_quota() -> dict | None:
     try:
-        print(f"[DEBUG] Fetching quota from {DASHBOARD_URL}/api/quota/status")
-        logger.info("Fetching quota from %s/api/quota/status", DASHBOARD_URL)
-        with urlopen(f"{DASHBOARD_URL}/api/quota/status", timeout=3) as resp:
+        logger.info("Refreshing quota from %s/api/quota/refresh-and-status", DASHBOARD_URL)
+        # 同步触发一次配额 + token 采集，可能耗时 5-15s，所以 timeout 放到 30s
+        with urlopen(f"{DASHBOARD_URL}/api/quota/refresh-and-status", timeout=30) as resp:
             data = json.loads(resp.read())
-            print(f"[DEBUG] Quota fetched: plan={data.get('plan_type')}")
-            logger.info("Quota fetched: plan=%s", data.get("plan_type"))
+            logger.info("Quota refreshed: plan=%s", (data.get("quota") or {}).get("plan_type"))
             return data
     except Exception as e:
-        print(f"[DEBUG] Failed to fetch quota: {e}")
-        logger.error("Failed to fetch quota: %s", e)
+        logger.error("Failed to refresh quota: %s", e)
         return None
 
 
@@ -213,7 +211,6 @@ class App:
         return icon
 
     def _show_popup(self):
-        print("[DEBUG] _show_popup called")
         logger.info("_show_popup called")
         if self._popup and self._popup.winfo_exists():
             logger.info("Destroying existing popup")
@@ -227,7 +224,10 @@ class App:
         popup.configure(bg="#161b22")
         popup.attributes("-topmost", True)
 
-        loading = tk.Label(popup, text="加载中...", fg="#8b949e", bg="#161b22", font=("Microsoft YaHei UI", 10), padx=24, pady=20)
+        loading = tk.Label(
+            popup, text="加载中", fg="#8b949e", bg="#161b22",
+            font=("Microsoft YaHei UI", 10), padx=24, pady=20,
+        )
         loading.pack()
         popup.update_idletasks()
         pw, ph = popup.winfo_reqwidth(), popup.winfo_reqheight()
@@ -236,24 +236,34 @@ class App:
         popup.bind("<FocusOut>", lambda e: popup.after(100, self._close_popup))
         popup.focus_force()
 
+        # 省略号循环动画：加载中 → 加载中. → 加载中.. → 加载中... → 加载中
+        self._animate_loading(popup, loading, 0)
+
         threading.Thread(target=self._load_popup_data, args=(popup,), daemon=True).start()
 
-    def _load_popup_data(self, popup):
-        print("[DEBUG] _load_popup_data started")
-        q = _fetch_quota()
-        print(f"[DEBUG] _load_popup_data result: {q is not None}")
-        logger.info("Popup data fetched: %s", "ok" if q else "none")
-        if not popup.winfo_exists():
-            print("[DEBUG] popup destroyed before data arrived")
+    def _animate_loading(self, popup, label, dots):
+        if not popup.winfo_exists() or not label.winfo_exists():
             return
-        self.root.after(0, self._render_popup_content, popup, q)
+        label.configure(text="加载中" + "." * dots)
+        popup.after(300, self._animate_loading, popup, label, (dots + 1) % 4)
 
-    def _render_popup_content(self, popup, q):
+    def _load_popup_data(self, popup):
+        data = _fetch_quota()
+        logger.info("Popup data fetched: %s", "ok" if data else "none")
+        if not popup.winfo_exists():
+            return
+        self.root.after(0, self._render_popup_content, popup, data)
+
+    def _render_popup_content(self, popup, data):
         if not popup.winfo_exists():
             return
 
         for w in popup.winfo_children():
             w.destroy()
+
+        # 新接口返回 {quota: {...}, usage: {five_hour, weekly}}，poller 不可用时可能为 {error}
+        q = (data or {}).get("quota") if data and data.get("quota") is not None else None
+        usage = (data or {}).get("usage") or {}
 
         if not q:
             content = tk.Frame(popup, bg="#161b22", padx=24, pady=20)
@@ -275,6 +285,28 @@ class App:
         if email:
             tk.Label(content, text=email, fg="#8b949e", bg="#161b22", font=("Microsoft YaHei UI", 9)).pack(anchor="w")
         tk.Label(content, text=f"套餐: {plan}", fg="#f0f6fc", bg="#161b22", font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w", pady=(0, 8))
+
+        # 本轮窗口用量（采集时刚算出的真实值，不是缓存）
+        fh_usage = usage.get("five_hour") or {}
+        wk_usage = usage.get("weekly") or {}
+        if fh_usage or wk_usage:
+            tk.Label(content, text="本轮窗口用量", fg="#8b949e", bg="#161b22", font=("Microsoft YaHei UI", 9)).pack(anchor="w", pady=(0, 2))
+            if fh_usage:
+                tk_tokens = int(fh_usage.get("total_tokens") or 0)
+                tk_cost = fh_usage.get("total_cost") or 0
+                tk.Label(
+                    content, text=f"  5h: {tk_tokens / 1_000_000:.3f}M · ${tk_cost:.4f}",
+                    fg="#c9d1d9", bg="#161b22", font=("Microsoft YaHei UI", 9),
+                ).pack(anchor="w")
+            if wk_usage:
+                wk_tokens = int(wk_usage.get("total_tokens") or 0)
+                wk_cost = wk_usage.get("total_cost") or 0
+                tk.Label(
+                    content, text=f"  周: {wk_tokens / 1_000_000:.3f}M · ${wk_cost:.4f}",
+                    fg="#c9d1d9", bg="#161b22", font=("Microsoft YaHei UI", 9),
+                ).pack(anchor="w", pady=(0, 6))
+            else:
+                tk.Frame(content, bg="#161b22", height=6).pack()
 
         tk.Label(content, text="5 小时剩余", fg="#8b949e", bg="#161b22", font=("Microsoft YaHei UI", 9)).pack(anchor="w")
         bar_frame_5h = tk.Frame(content, bg="#161b22")
