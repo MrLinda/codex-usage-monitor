@@ -216,9 +216,11 @@ function gaugeSVG(pct, size) {
 
 // === Refresh ===
 async function refresh() {
+    const trendDays = selectedTrendGran === 'hour' ? 1 : 30;
+    const trendFrom = new Date(Date.now() - trendDays * 24 * 3600 * 1000).toISOString();
     const data = await Promise.all([
       fetchJSON('/api/status'),
-      fetchJSON('/api/token-usage'),
+      fetchJSON('/api/token-usage?from_dt=' + encodeURIComponent(trendFrom) + '&limit=10000'),
       fetchJSON('/api/events'),
       fetchJSON('/api/usage/windowed'),
       fetchJSON('/api/quota/status'),
@@ -324,7 +326,7 @@ document.querySelectorAll('.trend-btn').forEach(el => {
   el.addEventListener('click', () => {
     selectedTrendGran = el.dataset.gran;
     document.querySelectorAll('.trend-btn').forEach(b => b.classList.toggle('active', b.dataset.gran === selectedTrendGran));
-    if (currentPage === 'overview') renderTrendChart(lastData.tokenUsage);
+    refresh();
   });
 });
 
