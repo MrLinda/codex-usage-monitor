@@ -85,7 +85,7 @@ class Repository:
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
         query += " ORDER BY event_time ASC"
-        if limit:
+        if not from_dt and not to_dt and limit:
             query += f" LIMIT {limit}"
         rows = self.conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
@@ -214,7 +214,7 @@ class Repository:
 
     def get_quota_history(self, limit: int = 500, from_dt: datetime | None = None, to_dt: datetime | None = None) -> list[dict[str, Any]]:
         query = "SELECT * FROM quota_samples"
-        params: list[str] = []
+        params: list[str | int] = []
         conditions = []
         if from_dt:
             conditions.append("captured_at >= ?")
@@ -224,8 +224,11 @@ class Repository:
             params.append(to_dt.isoformat())
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
-        query = f"SELECT * FROM ({query} ORDER BY captured_at DESC LIMIT ?) ORDER BY captured_at ASC"
-        params.append(limit)
+        if from_dt or to_dt:
+            query += " ORDER BY captured_at ASC"
+        else:
+            query = f"SELECT * FROM ({query} ORDER BY captured_at DESC LIMIT ?) ORDER BY captured_at ASC"
+            params.append(limit)
         rows = self.conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 

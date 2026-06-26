@@ -220,7 +220,7 @@ async function refresh() {
     const trendFrom = new Date(Date.now() - trendDays * 24 * 3600 * 1000).toISOString();
     const data = await Promise.all([
       fetchJSON('/api/status'),
-      fetchJSON('/api/token-usage?from_dt=' + encodeURIComponent(trendFrom) + '&limit=10000'),
+      fetchJSON('/api/token-usage?from_dt=' + encodeURIComponent(trendFrom)),
       fetchJSON('/api/events'),
       fetchJSON('/api/usage/windowed'),
       fetchJSON('/api/quota/status'),
@@ -424,9 +424,10 @@ function getQuotaRange() {
 
 async function loadQuotaData() {
   const { from, to } = getQuotaRange();
-  const params = new URLSearchParams({ limit: '500' });
+  const params = new URLSearchParams();
   if (from) params.set('from_dt', from);
   if (to) params.set('to_dt', to);
+  if (!from && !to) params.set('limit', '500');
   const qs = params.toString();
   const data = await Promise.all([
     fetchJSON('/api/quota/status'),
@@ -621,7 +622,7 @@ function getUsageRange() {
 
 async function loadUsageData() {
   const { from, to } = getUsageRange();
-  const params = new URLSearchParams({ from_dt: from, to_dt: to, limit: '100000' });
+  const params = new URLSearchParams({ from_dt: from, to_dt: to });
   const rows = await fetchJSON('/api/token-usage?' + params);
   const d = { rows };
   renderUsage(d);
