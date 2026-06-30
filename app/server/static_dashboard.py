@@ -218,9 +218,10 @@ function gaugeSVG(pct, size) {
 async function refresh() {
     const trendDays = selectedTrendGran === 'hour' ? 1 : 30;
     const trendFrom = new Date(Date.now() - trendDays * 24 * 3600 * 1000).toISOString();
+    const dailyParam = selectedTrendGran === 'day' ? '&daily=true' : '';
     const data = await Promise.all([
       fetchJSON('/api/status'),
-      fetchJSON('/api/token-usage?from_dt=' + encodeURIComponent(trendFrom)),
+      fetchJSON('/api/token-usage?from_dt=' + encodeURIComponent(trendFrom) + dailyParam),
       fetchJSON('/api/events'),
       fetchJSON('/api/usage/windowed'),
       fetchJSON('/api/quota/status'),
@@ -428,6 +429,7 @@ async function loadQuotaData() {
   if (from) params.set('from_dt', from);
   if (to) params.set('to_dt', to);
   if (!from && !to) params.set('limit', '500');
+  if (selectedQuotaRange === '30d') params.set('daily', 'true');
   const qs = params.toString();
   const data = await Promise.all([
     fetchJSON('/api/quota/status'),
@@ -623,6 +625,7 @@ function getUsageRange() {
 async function loadUsageData() {
   const { from, to } = getUsageRange();
   const params = new URLSearchParams({ from_dt: from, to_dt: to });
+  if (selectedPreset === '30d' || selectedPreset === 'month') params.set('daily', 'true');
   const rows = await fetchJSON('/api/token-usage?' + params);
   const d = { rows };
   renderUsage(d);

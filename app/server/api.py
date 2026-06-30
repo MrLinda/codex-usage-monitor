@@ -83,11 +83,12 @@ def api_token_usage(
     from_dt: str | None = Query(None),
     to_dt: str | None = Query(None),
     limit: int = Query(10000),
+    daily: bool = Query(False),
 ):
     repo = get_repo()
     from_parsed = datetime.fromisoformat(from_dt) if from_dt else None
     to_parsed = datetime.fromisoformat(to_dt) if to_dt else None
-    rows = repo.get_token_usage(from_dt=from_parsed, to_dt=to_parsed, limit=limit)
+    rows = repo.get_token_usage(from_dt=from_parsed, to_dt=to_parsed, limit=limit, daily=daily)
     return [
         {
             "event_time": r["event_time"],
@@ -272,11 +273,12 @@ def api_quota_history(
     limit: int = 500,
     from_dt: str | None = Query(None),
     to_dt: str | None = Query(None),
+    daily: bool = Query(False),
 ):
     repo = get_repo()
     from_parsed = datetime.fromisoformat(from_dt) if from_dt else None
     to_parsed = datetime.fromisoformat(to_dt) if to_dt else None
-    return repo.get_quota_history(limit=limit, from_dt=from_parsed, to_dt=to_parsed)
+    return repo.get_quota_history(limit=limit, from_dt=from_parsed, to_dt=to_parsed, daily=daily)
 
 
 @app.get("/api/quota/estimated-costs")
@@ -284,13 +286,14 @@ def api_quota_estimated_costs(
     limit: int = 500,
     from_dt: str | None = Query(None),
     to_dt: str | None = Query(None),
+    daily: bool = Query(False),
 ):
     from datetime import timedelta
 
     repo = get_repo()
     from_parsed = datetime.fromisoformat(from_dt) if from_dt else None
     to_parsed = datetime.fromisoformat(to_dt) if to_dt else None
-    samples = repo.get_quota_history(limit=limit, from_dt=from_parsed, to_dt=to_parsed)
+    samples = repo.get_quota_history(limit=limit, from_dt=from_parsed, to_dt=to_parsed, daily=daily)
     result = []
 
     for s in samples:

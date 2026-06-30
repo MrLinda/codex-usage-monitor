@@ -71,9 +71,9 @@ class Repository:
         return after - before
 
     def get_token_usage(
-        self, from_dt: datetime | None = None, to_dt: datetime | None = None, limit: int = 10000
+        self, from_dt: datetime | None = None, to_dt: datetime | None = None,
+        limit: int = 10000, daily: bool = False,
     ) -> list[dict[str, Any]]:
-        query = "SELECT * FROM token_usage_logs"
         params: list[str] = []
         conditions = []
         if from_dt:
@@ -82,11 +82,18 @@ class Repository:
         if to_dt:
             conditions.append("event_time <= ?")
             params.append(to_dt.isoformat())
-        if conditions:
-            query += " WHERE " + " AND ".join(conditions)
-        query += " ORDER BY event_time ASC"
-        if not from_dt and not to_dt and limit:
-            query += f" LIMIT {limit}"
+        where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+
+        if daily:
+            query = f"""SELECT DATE(event_time) as event_time, '' as session_id, '' as model,
+                SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens,
+                SUM(cached_input_tokens) as cached_input_tokens, SUM(reasoning_tokens) as reasoning_tokens,
+                SUM(estimated_cost_usd) as estimated_cost_usd
+                FROM token_usage_logs{where} GROUP BY DATE(event_time) ORDER BY event_time ASC"""
+        else:
+            query = f"SELECT * FROM token_usage_logs{where} ORDER BY event_time ASC"
+            if not from_dt and not to_dt and limit:
+                query += f" LIMIT {limit}"
         rows = self.conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
@@ -212,8 +219,7 @@ class Repository:
         ).fetchone()
         return dict(row) if row else None
 
-    def get_quota_history(self, limit: int = 500, from_dt: datetime | None = None, to_dt: datetime | None = None) -> list[dict[str, Any]]:
-        query = "SELECT * FROM quota_samples"
+    def get_quota_history(self, limit: int = 500, from_dt: datetime | None = None, to_dt: datetime | None = None, daily: bool = False) -> list[dict[str, Any]]:
         params: list[str | int] = []
         conditions = []
         if from_dt:
@@ -222,12 +228,17 @@ class Repository:
         if to_dt:
             conditions.append("captured_at <= ?")
             params.append(to_dt.isoformat())
-        if conditions:
-            query += " WHERE " + " AND ".join(conditions)
-        if from_dt or to_dt:
-            query += " ORDER BY captured_at ASC"
+        where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+
+        if daily:
+            query = f"""SELECT q.* FROM quota_samples q
+                INNER JOIN (SELECT DATE(captured_at) AS day, MAX(captured_at) AS max_at
+                    FROM quota_samples{where} GROUP BY DATE(captured_at)
+                ) latest ON q.captured_at = latest.max_at ORDER BY q.captured_at ASC"""
+        elif from_dt or to_dt:
+            query = f"SELECT * FROM quota_samples{where} ORDER BY captured_at ASC"
         else:
-            query = f"SELECT * FROM ({query} ORDER BY captured_at DESC LIMIT ?) ORDER BY captured_at ASC"
+            query = f"SELECT * FROM (SELECT * FROM quota_samples{where} ORDER BY captured_at DESC LIMIT ?) ORDER BY captured_at ASC"
             params.append(limit)
         rows = self.conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
