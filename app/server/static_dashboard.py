@@ -444,27 +444,20 @@ async function loadQuotaData() {
 
 function renderQuota(d) {
   const q = d.quotaStatus;
+  const estCosts = d.estimatedCosts || [];
+  const lastEst = estCosts.length > 0 ? estCosts[estCosts.length - 1] : {};
   document.getElementById('quotaCards').innerHTML = `
-    <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">套餐</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div style="font-size:13px;color:#8b949e">${q.email || ''}</div><div class="value" style="font-size:22px">${q.plan_type || '-'}</div></div></div>
-    <div class="card">
-      <div class="label">5 小时剩余</div>
-      <div style="display:flex;flex-direction:column;align-items:center;margin-top:8px">
-        ${gaugeSVG(q.five_hour_remaining_pct, 80)}
-      </div>
-      <div class="sub" style="text-align:center;margin-top:6px">重置: ${fmtTime(q.five_hour_reset_at)}</div>
-    </div>
     <div class="card">
       <div class="label">周剩余</div>
       <div style="display:flex;flex-direction:column;align-items:center;margin-top:8px">
         ${gaugeSVG(q.weekly_remaining_pct, 80)}
       </div>
-      <div class="sub" style="text-align:center;margin-top:6px">重置: ${fmtTime(q.weekly_reset_at)}</div>
     </div>
-    <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">最后采集</div><div style="flex:1;display:flex;align-items:center"><div class="value" style="font-size:16px">${fmtTime(q.captured_at)}</div></div></div>
+    <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">周估算额度</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div class="value" style="font-size:22px">${lastEst.weekly_est_total != null ? fmt$(lastEst.weekly_est_total) : '-'}</div></div></div>
+    <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">5 小时估算额度</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div class="value" style="font-size:22px">${lastEst.five_hour_est_total != null ? fmt$(lastEst.five_hour_est_total) : '-'}</div></div></div>
   `;
 
   const history = d.quotaHistory;
-  const estCosts = d.estimatedCosts || [];
   destroyChart('quotaChart');
   if (history.length > 0) {
     const labels = history.map(r => new Date(r.captured_at).toLocaleString());
@@ -479,7 +472,7 @@ function renderQuota(d) {
       const fhReset = r.five_hour_reset_at;
       const wkReset = r.weekly_reset_at;
 
-      if (fhReset && prevFhReset) {
+      if (selectedQuotaRange !== '30d' && fhReset && prevFhReset) {
         const diffMs = Math.abs(new Date(fhReset) - new Date(prevFhReset));
         if (diffMs < 120000) {
           fhConfirmCount++;

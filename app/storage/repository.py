@@ -231,9 +231,11 @@ class Repository:
         where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
 
         if daily:
+            fh_filter = "five_hour_used_pct > 0 AND five_hour_reset_at IS NOT NULL AND five_hour_window_seconds IS NOT NULL"
+            full_where = f"{where} AND {fh_filter}" if where else f" WHERE {fh_filter}"
             query = f"""SELECT q.* FROM quota_samples q
                 INNER JOIN (SELECT DATE(captured_at) AS day, MAX(captured_at) AS max_at
-                    FROM quota_samples{where} GROUP BY DATE(captured_at)
+                    FROM quota_samples{full_where} GROUP BY DATE(captured_at)
                 ) latest ON q.captured_at = latest.max_at ORDER BY q.captured_at ASC"""
         elif from_dt or to_dt:
             query = f"SELECT * FROM quota_samples{where} ORDER BY captured_at ASC"
