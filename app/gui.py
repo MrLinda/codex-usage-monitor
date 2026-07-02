@@ -278,13 +278,20 @@ class App:
         wk_reset = q.get("weekly_reset_at")
         email = q.get("email", "")
         plan = q.get("plan_type", "-")
+        plan_label = plan[0].upper() + plan[1:] if plan and plan != "-" else "-"
+        rc = data.get("reset_credits") or {}
+        rc_count = rc.get("available_count", 0)
 
         content = tk.Frame(popup, bg="#161b22", padx=16, pady=12)
         content.pack()
 
         if email:
             tk.Label(content, text=email, fg="#8b949e", bg="#161b22", font=("Microsoft YaHei UI", 9)).pack(anchor="w")
-        tk.Label(content, text=f"套餐: {plan}", fg="#f0f6fc", bg="#161b22", font=("Microsoft YaHei UI", 10, "bold")).pack(anchor="w", pady=(0, 8))
+        row = tk.Frame(content, bg="#161b22")
+        row.pack(anchor="w", fill="x", pady=(0, 8))
+        tk.Label(row, text=f"账号: {plan_label}", fg="#f0f6fc", bg="#161b22", font=("Microsoft YaHei UI", 10, "bold")).pack(side="left")
+        rc_color = "#3fb950" if rc_count > 0 else "#8b949e"
+        tk.Label(row, text=f"重置卡: {rc_count}", fg=rc_color, bg="#161b22", font=("Microsoft YaHei UI", 10)).pack(side="right")
 
         # 本轮窗口用量（采集时刚算出的真实值，不是缓存）
         fh_usage = usage.get("five_hour") or {}

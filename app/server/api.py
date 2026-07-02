@@ -265,30 +265,17 @@ async def api_quota_refresh_and_status():
         window_start = reset_dt - timedelta(seconds=wk_window)
         usage["weekly"] = repo.get_windowed_usage(window_start, reset_dt)
 
-    return {"quota": latest, "usage": usage}
+    reset_credits = _poller.quota_collector.get_reset_credits() if _poller else {}
+    return {"quota": latest, "usage": usage, "reset_credits": reset_credits}
 
 
 @app.get("/api/quota/reset-credits")
-def api_quota_reset_credits():
-    import json
-    from pathlib import Path
-    from urllib.request import Request, urlopen
-
-    auth_path = Path.home() / ".codex" / "auth.json"
-    if not auth_path.exists():
-        return {"error": "auth.json not found", "credits": [], "available_count": 0}
-    try:
-        auth = json.loads(auth_path.read_text(encoding="utf-8"))
-        token = auth["tokens"]["access_token"]
-        req = Request(
-            "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits",
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        )
-        with urlopen(req, timeout=10) as resp:
-            return json.loads(resp.read())
-    except Exception as e:
-        logger.error("Failed to fetch reset credits: %s", e)
-        return {"error": str(e), "credits": [], "available_count": 0}
+def api_quota_reset_credits(force: bool = Query(False)):
+    if _poller and _poller.quota_collector:
+        if force:
+            _poller.quota_collector.fetch_reset_credits()
+        return _poller.quota_collector.get_reset_credits()
+    return {"credits": [], "available_count": 0}
 
 
 @app.get("/api/quota/history")

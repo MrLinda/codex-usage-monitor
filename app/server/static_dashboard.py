@@ -227,8 +227,9 @@ async function refresh() {
       fetchJSON('/api/quota/status'),
       fetchJSON('/api/quota/history?limit=20'),
       fetchJSON('/api/quota/estimated-costs?limit=20'),
+      fetchJSON('/api/quota/reset-credits'),
     ]);
-    lastData = { status: data[0], tokenUsage: data[1], events: data[2], windowed: data[3], quotaStatus: data[4], quotaHistory: data[5], estimatedCosts: data[6] };
+    lastData = { status: data[0], tokenUsage: data[1], events: data[2], windowed: data[3], quotaStatus: data[4], quotaHistory: data[5], estimatedCosts: data[6], resetCredits: data[7] };
 
   if (currentPage === 'overview') renderOverview(lastData);
   else if (currentPage === 'quota') loadQuotaData();
@@ -239,8 +240,27 @@ async function refresh() {
 // === Overview ===
 function renderOverview(d) {
   const q = d.quotaStatus || {};
+  const rc = d.resetCredits || {};
+  const rcCount = rc.available_count || 0;
+  const rcList = (rc.credits || []).filter(c => c.status === 'available');
+  const planLabel = q.plan_type ? q.plan_type.charAt(0).toUpperCase() + q.plan_type.slice(1) : '-';
+  const rcListHtml = rcList.map(c => {
+    const exp = c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '';
+    const days = c.expires_at ? Math.ceil((new Date(c.expires_at) - new Date()) / 86400000) : null;
+    return `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #21262d"><div><div style="font-size:13px">${c.title || '重置卡'}</div><div style="font-size:11px;color:#8b949e">${c.description || ''}</div></div><div style="text-align:right"><div style="font-size:12px;color:#8b949e">${exp}</div><div style="font-size:11px;color:${days !== null && days <= 7 ? '#d29922' : '#8b949e'}">${days !== null ? days + '天后过期' : ''}</div></div></div>`;
+  }).join('');
   document.getElementById('ovQuotaCards').innerHTML = `
-    <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">套餐</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div style="font-size:13px;color:#8b949e">${q.email || ''}</div><div class="value" style="font-size:22px">${q.plan_type || '-'}</div></div></div>
+    <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">账号</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div style="font-size:13px;color:#8b949e">${q.email || ''}</div><div class="value" style="font-size:22px">${planLabel}</div><div class="sub" style="margin-top:4px">重置卡: <span style="color:${rcCount > 0 ? '#3fb950' : '#8b949e'}">${rcCount}</span>${rcList.length > 0 ? ` <a href="javascript:void(0)" onclick="document.getElementById('rcModal').style.display='block'" style="color:#58a6ff;font-size:11px;margin-left:4px">查看详情</a>` : ''}</div></div></div>
+  `;
+  let modal = document.getElementById('rcModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'rcModal';
+    modal.style.cssText = 'display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000';
+    modal.onclick = e => { if (e.target === modal) modal.style.display = 'none'; };
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#161b22;border:1px solid #30363d;border-radius:12px;padding:20px;width:480px;height:400px;overflow-y:auto;overflow-x:hidden"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:15px;font-weight:600">重置卡详情</div><button onclick="this.closest('#rcModal').style.display='none'" style="background:none;border:none;color:#8b949e;font-size:18px;cursor:pointer">&times;</button></div>${rcListHtml || '<div style="color:#8b949e;font-size:13px">暂无可用重置卡</div>'}</div>`;
     <div class="card">
       <div class="label">5 小时剩余</div>
       <div style="display:flex;flex-direction:column;align-items:center;margin-top:8px">
@@ -451,9 +471,13 @@ function renderQuota(d) {
   const rc = d.resetCredits || {};
   const rcCount = rc.available_count || 0;
   const rcList = (rc.credits || []).filter(c => c.status === 'available');
-  const rcDetails = rcList.map(c => {
+  const nextExpiring = rcList.slice().sort((a, b) => new Date(a.expires_at) - new Date(b.expires_at))[0];
+  const nextExpStr = nextExpiring ? new Date(nextExpiring.expires_at).toLocaleDateString() : '';
+  const nextExpDays = nextExpiring ? Math.ceil((new Date(nextExpiring.expires_at) - new Date()) / 86400000) : null;
+  const rcListHtml = rcList.map(c => {
     const exp = c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '';
-    return `<div style="font-size:11px;color:#8b949e;margin-top:4px">${c.title || '重置卡'} · 有效至 ${exp}</div>`;
+    const days = c.expires_at ? Math.ceil((new Date(c.expires_at) - new Date()) / 86400000) : null;
+    return `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #21262d"><div><div style="font-size:13px">${c.title || '重置卡'}</div><div style="font-size:11px;color:#8b949e">${c.description || ''}</div></div><div style="text-align:right"><div style="font-size:12px;color:#8b949e">${exp}</div><div style="font-size:11px;color:${days !== null && days <= 7 ? '#d29922' : '#8b949e'}">${days !== null ? days + '天后过期' : ''}</div></div></div>`;
   }).join('');
   document.getElementById('quotaCards').innerHTML = `
     <div class="card">
@@ -464,8 +488,17 @@ function renderQuota(d) {
     </div>
     <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">周估算额度</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div class="value" style="font-size:22px">${lastEst.weekly_est_total != null ? fmt$(lastEst.weekly_est_total) : '-'}</div></div></div>
     <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">5 小时估算额度</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div class="value" style="font-size:22px">${lastEst.five_hour_est_total != null ? fmt$(lastEst.five_hour_est_total) : '-'}</div></div></div>
-    <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">重置卡</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div class="value" style="font-size:22px;color:${rcCount > 0 ? '#3fb950' : '#8b949e'}">${rcCount}</div>${rcDetails}</div></div>
+    <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">重置卡</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div class="value" style="font-size:22px;color:${rcCount > 0 ? '#3fb950' : '#8b949e'}">${rcCount}</div>${nextExpiring ? `<div class="sub" style="margin-top:4px">最近过期: ${nextExpStr} <span style="color:${nextExpDays !== null && nextExpDays <= 7 ? '#d29922' : '#8b949e'}">(${nextExpDays}天)</span></div>` : ''}${rcList.length > 0 ? `<div style="margin-top:6px"><button onclick="document.getElementById('rcModal').style.display='block'" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer">查看详情</button></div>` : ''}</div></div>
   `;
+  let modal = document.getElementById('rcModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'rcModal';
+    modal.style.cssText = 'display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000';
+    modal.onclick = e => { if (e.target === modal) modal.style.display = 'none'; };
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#161b22;border:1px solid #30363d;border-radius:12px;padding:20px;width:480px;height:400px;overflow-y:auto;overflow-x:hidden"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:15px;font-weight:600">重置卡详情</div><button onclick="this.closest('#rcModal').style.display='none'" style="background:none;border:none;color:#8b949e;font-size:18px;cursor:pointer">&times;</button></div>${rcListHtml || '<div style="color:#8b949e;font-size:13px">暂无可用重置卡</div>'}</div>`;
 
   const history = d.quotaHistory;
   destroyChart('quotaChart');

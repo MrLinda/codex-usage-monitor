@@ -61,7 +61,13 @@ def _parse_window(window: dict | None) -> tuple[float | None, float | None, date
     return used_f, remaining_f, reset_at, window_sec
 
 
+RESET_CREDITS_URL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
+
+
 class QuotaCollector(Collector):
+    def __init__(self) -> None:
+        self._reset_credits_cache: dict = {}
+
     async def collect(self) -> QuotaSample | None:
         creds = _get_credentials()
         if not creds:
@@ -119,3 +125,24 @@ class QuotaCollector(Collector):
             credits_balance=credits_balance,
             raw_json=data,
         )
+
+    def get_reset_credits(self) -> dict:
+        return self._reset_credits_cache or {"credits": [], "available_count": 0}
+
+    def fetch_reset_credits(self) -> dict:
+        creds = _get_credentials()
+        if not creds:
+            return {"error": "auth.json not found", "credits": [], "available_count": 0}
+        token, _ = creds
+        try:
+            resp = requests.get(
+                RESET_CREDITS_URL,
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            self._reset_credits_cache = resp.json()
+            logger.info("Reset credits fetched: %d available", self._reset_credits_cache.get("available_count", 0))
+        except requests.RequestException as e:
+            logger.error("Failed to fetch reset credits: %s", e)
+        return self._reset_credits_cache

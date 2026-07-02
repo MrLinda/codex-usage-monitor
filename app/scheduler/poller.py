@@ -59,11 +59,13 @@ class Poller:
                 datetime.now(timezone.utc), "quota_collected",
                 f"Quota collected: plan={sample.plan_type}, 5h remaining={sample.five_hour_remaining_pct}%",
             )
+        self.quota_collector.fetch_reset_credits()
 
     async def poll_loop(self):
         self._running = True
         logger.info("Polling started (interval=%d sec, quota_interval=%d min)", self.config.app.poll_interval_seconds, self.quota_interval_minutes)
         self.repo.insert_event(datetime.now(timezone.utc), "monitor_started", "Polling started")
+        self.quota_collector.fetch_reset_credits()
         # 首次延迟与 elapsed 都用当前 step；之后每轮重新读取 config，支持热更新
         step = min(self.config.app.poll_interval_seconds, self.quota_interval_minutes * 60)
         elapsed = step
