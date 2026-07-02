@@ -251,16 +251,6 @@ function renderOverview(d) {
   }).join('');
   document.getElementById('ovQuotaCards').innerHTML = `
     <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">账号</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div style="font-size:13px;color:#8b949e">${q.email || ''}</div><div class="value" style="font-size:22px">${planLabel}</div><div class="sub" style="margin-top:4px">重置卡: <span style="color:${rcCount > 0 ? '#3fb950' : '#8b949e'}">${rcCount}</span>${rcList.length > 0 ? ` <a href="javascript:void(0)" onclick="document.getElementById('rcModal').style.display='block'" style="color:#58a6ff;font-size:11px;margin-left:4px">查看详情</a>` : ''}</div></div></div>
-  `;
-  let modal = document.getElementById('rcModal');
-  if (!modal) {
-    modal = document.createElement('div');
-    modal.id = 'rcModal';
-    modal.style.cssText = 'display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000';
-    modal.onclick = e => { if (e.target === modal) modal.style.display = 'none'; };
-    document.body.appendChild(modal);
-  }
-  modal.innerHTML = `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#161b22;border:1px solid #30363d;border-radius:12px;padding:20px;width:480px;height:400px;overflow-y:auto;overflow-x:hidden"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:15px;font-weight:600">重置卡详情</div><button onclick="this.closest('#rcModal').style.display='none'" style="background:none;border:none;color:#8b949e;font-size:18px;cursor:pointer">&times;</button></div>${rcListHtml || '<div style="color:#8b949e;font-size:13px">暂无可用重置卡</div>'}</div>`;
     <div class="card">
       <div class="label">5 小时剩余</div>
       <div style="display:flex;flex-direction:column;align-items:center;margin-top:8px">
@@ -277,6 +267,15 @@ function renderOverview(d) {
     </div>
     <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">最后采集</div><div style="flex:1;display:flex;align-items:center"><div class="value" style="font-size:16px">${fmtTime(q.captured_at)}</div></div></div>
   `;
+  let modal = document.getElementById('rcModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'rcModal';
+    modal.style.cssText = 'display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000';
+    modal.onclick = e => { if (e.target === modal) modal.style.display = 'none'; };
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#161b22;border:1px solid #30363d;border-radius:12px;padding:20px;width:480px;height:400px;overflow-y:auto;overflow-x:hidden"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:15px;font-weight:600">重置卡详情</div><button onclick="this.closest('#rcModal').style.display='none'" style="background:none;border:none;color:#8b949e;font-size:18px;cursor:pointer">&times;</button></div>${rcListHtml || '<div style="color:#8b949e;font-size:13px">暂无可用重置卡</div>'}</div>`;
 
   const s = d.status.summary || {};
   const today = d.status.today || {};
