@@ -435,10 +435,12 @@ async function loadQuotaData() {
     fetchJSON('/api/quota/status'),
     fetchJSON('/api/quota/history?' + qs),
     fetchJSON('/api/quota/estimated-costs?' + qs),
+    fetchJSON('/api/quota/reset-credits'),
   ]);
   lastData.quotaStatus = data[0];
   lastData.quotaHistory = data[1];
   lastData.estimatedCosts = data[2];
+  lastData.resetCredits = data[3];
   renderQuota(lastData);
 }
 
@@ -446,6 +448,13 @@ function renderQuota(d) {
   const q = d.quotaStatus;
   const estCosts = d.estimatedCosts || [];
   const lastEst = estCosts.length > 0 ? estCosts[estCosts.length - 1] : {};
+  const rc = d.resetCredits || {};
+  const rcCount = rc.available_count || 0;
+  const rcList = (rc.credits || []).filter(c => c.status === 'available');
+  const rcDetails = rcList.map(c => {
+    const exp = c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '';
+    return `<div style="font-size:11px;color:#8b949e;margin-top:4px">${c.title || '重置卡'} · 有效至 ${exp}</div>`;
+  }).join('');
   document.getElementById('quotaCards').innerHTML = `
     <div class="card">
       <div class="label">周剩余</div>
@@ -455,6 +464,7 @@ function renderQuota(d) {
     </div>
     <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">周估算额度</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div class="value" style="font-size:22px">${lastEst.weekly_est_total != null ? fmt$(lastEst.weekly_est_total) : '-'}</div></div></div>
     <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">5 小时估算额度</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div class="value" style="font-size:22px">${lastEst.five_hour_est_total != null ? fmt$(lastEst.five_hour_est_total) : '-'}</div></div></div>
+    <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">重置卡</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div class="value" style="font-size:22px;color:${rcCount > 0 ? '#3fb950' : '#8b949e'}">${rcCount}</div>${rcDetails}</div></div>
   `;
 
   const history = d.quotaHistory;
