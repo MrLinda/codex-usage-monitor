@@ -47,7 +47,7 @@ class Poller:
                     f"Collected {count} entries ({total_tokens} tokens, ${total_cost:.4f})",
                 )
         else:
-            logger.info("No new token usage entries found")
+            logger.debug("No new token usage entries found")
 
         return count
 

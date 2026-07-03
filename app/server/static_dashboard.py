@@ -49,18 +49,9 @@ h2 { font-size: 16px; margin-bottom: 12px; color: #f0f6fc; }
 
 /* Window selector */
 .window-selector { display: flex; gap: 8px; margin-bottom: 16px; }
-.window-btn { padding: 6px 16px; border-radius: 6px; border: 1px solid #30363d; background: #161b22; color: #8b949e; cursor: pointer; font-size: 13px; transition: all 0.15s; }
-.window-btn:hover { background: #1c2128; color: #c9d1d9; }
-.window-btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
-.usage-btn { padding: 6px 16px; border-radius: 6px; border: 1px solid #30363d; background: #161b22; color: #8b949e; cursor: pointer; font-size: 13px; transition: all 0.15s; }
-.usage-btn:hover { background: #1c2128; color: #c9d1d9; }
-.usage-btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
-.quota-range-btn { padding: 6px 16px; border-radius: 6px; border: 1px solid #30363d; background: #161b22; color: #8b949e; cursor: pointer; font-size: 13px; transition: all 0.15s; }
-.quota-range-btn:hover { background: #1c2128; color: #c9d1d9; }
-.quota-range-btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
-.trend-btn { padding: 6px 16px; border-radius: 6px; border: 1px solid #30363d; background: #161b22; color: #8b949e; cursor: pointer; font-size: 13px; transition: all 0.15s; }
-.trend-btn:hover { background: #1c2128; color: #c9d1d9; }
-.trend-btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+.btn { padding: 6px 16px; border-radius: 6px; border: 1px solid #30363d; background: #161b22; color: #8b949e; cursor: pointer; font-size: 13px; transition: all 0.15s; }
+.btn:hover { background: #1c2128; color: #c9d1d9; }
+.btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
 
 /* Toolbar */
 .toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
@@ -98,8 +89,8 @@ h2 { font-size: 16px; margin-bottom: 12px; color: #f0f6fc; }
   <div class="chart-container" style="height:400px">
     <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
       <div class="window-selector">
-        <button class="trend-btn active" data-gran="hour">按小时</button>
-        <button class="trend-btn" data-gran="day">按天</button>
+        <button class="btn active" data-gran="hour">按小时</button>
+        <button class="btn" data-gran="day">按天</button>
       </div>
     </div>
     <canvas id="ovTrendChart"></canvas>
@@ -112,15 +103,15 @@ h2 { font-size: 16px; margin-bottom: 12px; color: #f0f6fc; }
   <div class="cards quota-cards" id="quotaCards"></div>
   <div class="toolbar">
     <div class="window-selector">
-      <button class="window-btn active" data-window="both">全部</button>
-      <button class="window-btn" data-window="five_hour">5 小时</button>
-      <button class="window-btn" data-window="weekly">周</button>
+      <button class="btn active" data-window="both">全部</button>
+      <button class="btn" data-window="five_hour">5 小时</button>
+      <button class="btn" data-window="weekly">周</button>
     </div>
     <div class="window-selector">
-      <button class="quota-range-btn active" data-range="24h">近 24h</button>
-      <button class="quota-range-btn" data-range="7d">近 7 天</button>
-      <button class="quota-range-btn" data-range="30d">近 30 天</button>
-      <button class="quota-range-btn" data-range="all">全部</button>
+      <button class="btn active" data-range="24h">近 24h</button>
+      <button class="btn" data-range="7d">近 7 天</button>
+      <button class="btn" data-range="30d">近 30 天</button>
+      <button class="btn" data-range="all">全部</button>
     </div>
   </div>
   <div class="chart-container"><canvas id="quotaChart"></canvas></div>
@@ -130,12 +121,12 @@ h2 { font-size: 16px; margin-bottom: 12px; color: #f0f6fc; }
 <div class="page" id="page-usage">
   <div class="toolbar">
     <div class="window-selector">
-      <button class="usage-btn active" data-preset="24h">近 24h</button>
-      <button class="usage-btn" data-preset="7d">近 7 天</button>
-      <button class="usage-btn" data-preset="30d">近 30 天</button>
-      <button class="usage-btn" data-preset="today">今天</button>
-      <button class="usage-btn" data-preset="week">这周</button>
-      <button class="usage-btn" data-preset="month">这月</button>
+      <button class="btn active" data-preset="24h">近 24h</button>
+      <button class="btn" data-preset="7d">近 7 天</button>
+      <button class="btn" data-preset="30d">近 30 天</button>
+      <button class="btn" data-preset="today">今天</button>
+      <button class="btn" data-preset="week">这周</button>
+      <button class="btn" data-preset="month">这月</button>
     </div>
     <div></div>
   </div>
@@ -240,17 +231,13 @@ async function refresh() {
     const trendDays = selectedTrendGran === 'hour' ? 1 : 30;
     const trendFrom = new Date(Date.now() - trendDays * 24 * 3600 * 1000).toISOString();
     const dailyParam = selectedTrendGran === 'day' ? '&daily=true' : '';
-    const data = await Promise.all([
-      fetchJSON('/api/status'),
-      fetchJSON('/api/token-usage?from_dt=' + encodeURIComponent(trendFrom) + dailyParam),
-      fetchJSON('/api/events'),
-      fetchJSON('/api/usage/windowed'),
-      fetchJSON('/api/quota/status'),
-      fetchJSON('/api/quota/history?limit=20'),
-      fetchJSON('/api/quota/estimated-costs?limit=20'),
-      fetchJSON('/api/quota/reset-credits'),
-    ]);
-    lastData = { status: data[0], tokenUsage: data[1], events: data[2], windowed: data[3], quotaStatus: data[4], quotaHistory: data[5], estimatedCosts: data[6], resetCredits: data[7] };
+  const data = await Promise.all([
+    fetchJSON('/api/status'),
+    fetchJSON('/api/token-usage?from_dt=' + encodeURIComponent(trendFrom) + dailyParam),
+    fetchJSON('/api/events'),
+    fetchJSON('/api/usage/windowed'),
+  ]);
+  lastData = { status: data[0], tokenUsage: data[1], events: data[2], windowed: data[3] };
 
   if (currentPage === 'overview') renderOverview(lastData);
   else if (currentPage === 'quota') loadQuotaData();
@@ -260,8 +247,9 @@ async function refresh() {
 
 // === Overview ===
 function renderOverview(d) {
-  const q = d.quotaStatus || {};
-  const rc = d.resetCredits || {};
+  const s = d.status || {};
+  const q = s.quota || {};
+  const rc = s.reset_credits || {};
   const rcCount = rc.available_count || 0;
   const rcList = availableResetCards(rc);
   const planLabel = q.plan_type ? q.plan_type.charAt(0).toUpperCase() + q.plan_type.slice(1) : '-';
@@ -285,22 +273,22 @@ function renderOverview(d) {
   `;
   updateRcModal(rcList);
 
-  const s = d.status.summary || {};
+  const summary = d.status.summary || {};
   const today = d.status.today || {};
   const w = d.windowed || {};
   const fh = w.five_hour?.usage || {};
   const wk = w.weekly?.usage || {};
   const fhEstTotal = q.five_hour_used_pct > 0 ? (fh.total_cost || 0) / (q.five_hour_used_pct / 100) : 0;
   const wkEstTotal = q.weekly_used_pct > 0 ? (wk.total_cost || 0) / (q.weekly_used_pct / 100) : 0;
-  const uncached = s.total_input - s.total_cached;
-  const pct = (v) => s.total_tokens > 0 ? (v / s.total_tokens * 100).toFixed(0) : 0;
+  const uncached = summary.total_input - summary.total_cached;
+  const pct = (v) => summary.total_tokens > 0 ? (v / summary.total_tokens * 100).toFixed(0) : 0;
   document.getElementById('ovCards').innerHTML = `
     <div class="card" style="flex:2;min-width:320px">
       <div class="label">总计</div>
-      <div style="display:flex;justify-content:space-between;align-items:baseline"><div class="value">${fmtNum(s.total_tokens)}</div><div class="value" style="color:#d29922;font-size:22px">${fmt$(s.total_cost)}</div></div>
-      <div class="sub">${fmt(s.total_entries)} 次请求${s.total_input > 0 ? ` · <span style="color:#a371f7">缓存命中 ${(s.total_cached / s.total_input * 100).toFixed(1)}%</span>` : ''}</div>
-      <div class="bar-stack"><div style="width:${pct(uncached)}%;background:#58a6ff"></div><div style="width:${pct(s.total_cached)}%;background:#a371f7"></div><div style="width:${pct(s.total_output)}%;background:#f85149"></div></div>
-      <div class="token-row"><div><div class="num">${fmtNum(uncached)}</div><div class="lbl">输入</div></div><div><div class="num">${fmtNum(s.total_cached)}</div><div class="lbl">缓存读取</div></div><div><div class="num">${fmtNum(s.total_output)}</div><div class="lbl">输出</div></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><div class="value">${fmtNum(summary.total_tokens)}</div><div class="value" style="color:#d29922;font-size:22px">${fmt$(summary.total_cost)}</div></div>
+      <div class="sub">${fmt(summary.total_entries)} 次请求${summary.total_input > 0 ? ` · <span style="color:#a371f7">缓存命中 ${(summary.total_cached / summary.total_input * 100).toFixed(1)}%</span>` : ''}</div>
+      <div class="bar-stack"><div style="width:${pct(uncached)}%;background:#58a6ff"></div><div style="width:${pct(summary.total_cached)}%;background:#a371f7"></div><div style="width:${pct(summary.total_output)}%;background:#f85149"></div></div>
+      <div class="token-row"><div><div class="num">${fmtNum(uncached)}</div><div class="lbl">输入</div></div><div><div class="num">${fmtNum(summary.total_cached)}</div><div class="lbl">缓存读取</div></div><div><div class="num">${fmtNum(summary.total_output)}</div><div class="lbl">输出</div></div></div>
     </div>
     <div class="card" style="flex:2;min-width:320px">
       <div class="label">今日</div>
@@ -350,10 +338,10 @@ function renderOverview(d) {
 
 // === Trend Chart ===
 let selectedTrendGran = 'hour';
-document.querySelectorAll('.trend-btn').forEach(el => {
+document.querySelectorAll('[data-gran]').forEach(el => {
   el.addEventListener('click', () => {
     selectedTrendGran = el.dataset.gran;
-    document.querySelectorAll('.trend-btn').forEach(b => b.classList.toggle('active', b.dataset.gran === selectedTrendGran));
+    document.querySelectorAll('[data-gran]').forEach(b => b.classList.toggle('active', b.dataset.gran === selectedTrendGran));
     refresh();
   });
 });
@@ -416,7 +404,7 @@ function renderTrendChart(tokenUsage) {
       scales: {
         x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
         y: { type: 'linear', position: 'left', ticks: { color: '#58a6ff', callback: (v) => fmt(v) }, grid: { color: '#21262d' } },
-        y1: { type: 'linear', position: 'right', ticks: { color: '#d29922', callback: (v) => fmt$(v) }, grid: { display: false } },
+        y1: { type: 'linear', position: 'right', min: 0, ticks: { color: '#d29922', callback: (v) => fmt$(v) }, grid: { display: false } },
       },
     },
   });
@@ -425,17 +413,17 @@ function renderTrendChart(tokenUsage) {
 // === Quota ===
 let selectedWindow = 'both';
 let selectedQuotaRange = '24h';
-document.querySelectorAll('.window-btn').forEach(el => {
+document.querySelectorAll('[data-window]').forEach(el => {
   el.addEventListener('click', () => {
     selectedWindow = el.dataset.window;
-    document.querySelectorAll('.window-btn').forEach(b => b.classList.toggle('active', b.dataset.window === selectedWindow));
+    document.querySelectorAll('[data-window]').forEach(b => b.classList.toggle('active', b.dataset.window === selectedWindow));
     if (currentPage === 'quota') renderQuota(lastData);
   });
 });
-document.querySelectorAll('.quota-range-btn').forEach(el => {
+document.querySelectorAll('[data-range]').forEach(el => {
   el.addEventListener('click', () => {
     selectedQuotaRange = el.dataset.range;
-    document.querySelectorAll('.quota-range-btn').forEach(b => b.classList.toggle('active', b.dataset.range === selectedQuotaRange));
+    document.querySelectorAll('[data-range]').forEach(b => b.classList.toggle('active', b.dataset.range === selectedQuotaRange));
     if (currentPage === 'quota') loadQuotaData();
   });
 });
@@ -459,15 +447,13 @@ async function loadQuotaData() {
   if (selectedQuotaRange === '30d') params.set('daily', 'true');
   const qs = params.toString();
   const data = await Promise.all([
-    fetchJSON('/api/quota/status'),
     fetchJSON('/api/quota/history?' + qs),
     fetchJSON('/api/quota/estimated-costs?' + qs),
-    fetchJSON('/api/quota/reset-credits'),
   ]);
-  lastData.quotaStatus = data[0];
-  lastData.quotaHistory = data[1];
-  lastData.estimatedCosts = data[2];
-  lastData.resetCredits = data[3];
+  lastData.quotaStatus = (lastData.status && lastData.status.quota) || null;
+  lastData.quotaHistory = data[0];
+  lastData.estimatedCosts = data[1];
+  lastData.resetCredits = (lastData.status && lastData.status.reset_credits) || {};
   renderQuota(lastData);
 }
 
@@ -488,8 +474,8 @@ function renderQuota(d) {
         ${gaugeSVG(q.weekly_remaining_pct, 80)}
       </div>
     </div>
-    <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">周估算额度</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div class="value" style="font-size:22px">${lastEst.weekly_est_total != null ? fmt$(lastEst.weekly_est_total) : '-'}</div></div></div>
     <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">5 小时估算额度</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div class="value" style="font-size:22px">${lastEst.five_hour_est_total != null ? fmt$(lastEst.five_hour_est_total) : '-'}</div></div></div>
+    <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">周估算额度</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div class="value" style="font-size:22px">${lastEst.weekly_est_total != null ? fmt$(lastEst.weekly_est_total) : '-'}</div></div></div>
     <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">重置卡</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div class="value" style="font-size:22px;color:${rcCount > 0 ? '#3fb950' : '#8b949e'}">${rcCount}</div>${nextExpiring ? `<div class="sub" style="margin-top:4px">最近过期: ${nextExpStr} <span style="color:${nextExpDays !== null && nextExpDays <= 7 ? '#d29922' : '#8b949e'}">(${nextExpDays}天)</span></div>` : ''}${rcList.length > 0 ? `<div style="margin-top:6px"><button onclick="document.getElementById('rcModal').style.display='block'" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer">查看详情</button></div>` : ''}</div></div>
   `;
   updateRcModal(rcList);
@@ -602,7 +588,7 @@ function renderQuota(d) {
         scales: {
           x: { ticks: { color: '#8b949e', maxRotation: 45 }, grid: { color: '#21262d' } },
           y: { min: 0, max: 100, position: 'left', ticks: { color: '#8b949e', callback: (v) => v + '%' }, grid: { color: '#21262d' }, title: { display: true, text: '剩余 %', color: '#8b949e' } },
-          y1: { position: 'right', ticks: { color: '#d29922', callback: (v) => fmt$(v) }, grid: { display: false }, title: { display: true, text: '估算总额 $', color: '#d29922' } },
+          y1: { position: 'right', min: 0, ticks: { color: '#d29922', callback: (v) => fmt$(v) }, grid: { display: false }, title: { display: true, text: '估算总额 $', color: '#d29922' } },
         },
       },
     });
@@ -611,17 +597,17 @@ function renderQuota(d) {
 
 // === Events ===
 function renderEvents(d) {
-  document.getElementById('eventList').innerHTML = d.events.slice(0, 50).map(e =>
+  document.getElementById('eventList').innerHTML = d.events.map(e =>
     `<li>[${new Date(e.event_at).toLocaleString()}] <strong>${e.event_type}</strong>: ${e.message || ''}</li>`
   ).join('');
 }
 
 // === Usage ===
 let selectedPreset = '24h';
-document.querySelectorAll('.usage-btn').forEach(el => {
+document.querySelectorAll('[data-preset]').forEach(el => {
   el.addEventListener('click', () => {
     selectedPreset = el.dataset.preset;
-    document.querySelectorAll('.usage-btn').forEach(b => b.classList.toggle('active', b.dataset.preset === selectedPreset));
+    document.querySelectorAll('[data-preset]').forEach(b => b.classList.toggle('active', b.dataset.preset === selectedPreset));
     if (currentPage === 'usage') loadUsageData();
   });
 });
@@ -701,16 +687,18 @@ function renderUsage(d) {
     </div>
     <div class="card" style="display:flex;flex-direction:column">
       <div class="label">使用模型 (${modelNames.length})</div>
-      <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;flex:1;overflow:hidden">
+      <div style="margin-top:8px;display:grid;grid-template-columns:1fr auto auto;gap:6px 12px;flex:1;overflow:hidden;font-size:13px;align-content:start">
+        <span style="color:#8b949e;font-size:12px;padding-bottom:4px;border-bottom:1px solid #21262d">模型</span>
+        <span style="color:#8b949e;font-size:12px;text-align:right;padding-bottom:4px;border-bottom:1px solid #21262d">Token</span>
+        <span style="color:#8b949e;font-size:12px;text-align:right;padding-bottom:4px;border-bottom:1px solid #21262d">费用</span>
         ${modelNames.map((m, i) => `
-          <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;line-height:1.4">
-            <span style="display:flex;align-items:center;gap:8px;color:#c9d1d9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${COLORS[i % COLORS.length]};flex-shrink:0"></span>
-              ${m}
-            </span>
-            <span style="color:#d29922;font-variant-numeric:tabular-nums;flex-shrink:0;margin-left:8px">${fmt$(models[m].cost)}</span>
-          </div>
-        `).join('') || '<div style="color:#6e7681;font-size:13px">暂无数据</div>'}
+        <span style="display:flex;align-items:center;gap:6px;color:#c9d1d9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${COLORS[i % COLORS.length]};flex-shrink:0"></span>
+          ${m}
+        </span>
+        <span style="color:#8b949e;font-variant-numeric:tabular-nums;text-align:right">${((models[m].input + models[m].output) / 1000000).toFixed(2)}M</span>
+        <span style="color:#d29922;font-variant-numeric:tabular-nums;text-align:right">${fmt$(models[m].cost)}</span>
+        `).join('') || '<div style="grid-column:1/-1;color:#6e7681;font-size:13px">暂无数据</div>'}
       </div>
     </div>
   `;
@@ -755,7 +743,7 @@ function renderUsage(d) {
       options: {
         responsive: true, maintainAspectRatio: false,
         plugins: { title: { display: true, text: longRange ? 'Token 和成本趋势（按天）' : 'Token 和成本趋势（按小时）', color: '#c9d1d9' }, legend: { labels: { color: '#c9d1d9' } } },
-        scales: { x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } }, y: { type: 'linear', position: 'left', ticks: { color: '#58a6ff', callback: (v) => fmt(v) }, grid: { color: '#21262d' } }, y1: { type: 'linear', position: 'right', ticks: { color: '#d29922', callback: (v) => fmt$(v) }, grid: { display: false } } },
+        scales: { x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } }, y: { type: 'linear', position: 'left', ticks: { color: '#58a6ff', callback: (v) => fmt(v) }, grid: { color: '#21262d' } }, y1: { type: 'linear', position: 'right', min: 0, ticks: { color: '#d29922', callback: (v) => fmt$(v) }, grid: { display: false } } },
       },
     });
   }
@@ -793,8 +781,9 @@ async function syncQuotaInterval() {
   } catch {}
 }
 syncQuotaInterval();
-// 跟着前端轮询节奏一起同步，让 GUI 设置面板的修改在网页上自动反映
-setInterval(syncQuotaInterval, 30000);
+// 页面不可见时暂停同步请求，减少后台开销
+document.addEventListener('visibilitychange', () => { if (!document.hidden) syncQuotaInterval(); });
+setInterval(() => { if (!document.hidden) syncQuotaInterval(); }, 30000);
 
 document.getElementById('pollInterval').addEventListener('change', async () => {
   const seconds = parseInt(document.getElementById('pollInterval').value);
@@ -821,7 +810,8 @@ async function syncPollInterval() {
   } catch {}
 }
 syncPollInterval();
-setInterval(syncPollInterval, 30000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) syncPollInterval(); });
+setInterval(() => { if (!document.hidden) syncPollInterval(); }, 30000);
 
 document.getElementById('refreshAll').addEventListener('click', async () => {
   const btn = document.getElementById('refreshAll');

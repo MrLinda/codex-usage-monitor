@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from datetime import datetime
 from typing import Any, Iterable
 
@@ -11,34 +12,15 @@ from app.models import TokenUsage, QuotaSample
 class Repository:
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
-
-    def insert_token_usage(self, usage: TokenUsage) -> int:
-        cur = self.conn.execute(
-            """INSERT OR IGNORE INTO token_usage_logs
-               (event_time, session_id, model, input_tokens, output_tokens,
-                cached_input_tokens, reasoning_tokens, estimated_cost_usd, raw_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                usage.event_time.isoformat(),
-                usage.session_id,
-                usage.model,
-                usage.input_tokens,
-                usage.output_tokens,
-                usage.cached_input_tokens,
-                usage.reasoning_tokens,
-                usage.estimated_cost_usd,
-                usage.raw_json,
-            ),
-        )
-        self.conn.commit()
-        return cur.lastrowid
+        self._write_lock = threading.Lock()
 
     def insert_token_usage_batch(self, usages: Iterable[TokenUsage]) -> int:
         """批量插入并自动去重，返回实际新增行数。
 
         - INSERT OR IGNORE 配合 (event_time, session_id, model) 唯一索引，
-          重复行直接被 SQLite 跳过，避免 N+1 SELECT 去重。
+           重复行直接被 SQLite 跳过，避免 N+1 SELECT 去重。
         - 整批一个事务、一次 commit，相比逐条 commit 节省大量 fsync。
+        - 通过 _write_lock 序列化写入，避免多线程并发导致 InterfaceError。
         """
         rows = [
             (
@@ -56,19 +38,17 @@ class Repository:
         ]
         if not rows:
             return 0
-        # executemany 之后 changes() 只反映最后一条语句，不可靠；
-        # 用 COUNT 前后差值统计实际新增行数。
-        before = self.conn.execute("SELECT COUNT(*) FROM token_usage_logs").fetchone()[0]
-        with self.conn:
-            self.conn.executemany(
-                """INSERT OR IGNORE INTO token_usage_logs
-                   (event_time, session_id, model, input_tokens, output_tokens,
-                    cached_input_tokens, reasoning_tokens, estimated_cost_usd, raw_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                rows,
-            )
-        after = self.conn.execute("SELECT COUNT(*) FROM token_usage_logs").fetchone()[0]
-        return after - before
+        with self._write_lock:
+            before = self.conn.total_changes
+            with self.conn:
+                self.conn.executemany(
+                    """INSERT OR IGNORE INTO token_usage_logs
+                       (event_time, session_id, model, input_tokens, output_tokens,
+                        cached_input_tokens, reasoning_tokens, estimated_cost_usd, raw_json)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    rows,
+                )
+            return self.conn.total_changes - before
 
     def get_token_usage(
         self, from_dt: datetime | None = None, to_dt: datetime | None = None,
@@ -87,11 +67,12 @@ class Repository:
         if daily:
             # event_time 存的是 UTC ISO 串，按天聚合用 localtime 折算到本地日界，
             # 否则 UTC+8 下"一天"是从早上 8 点到次日 8 点
-            query = f"""SELECT DATE(event_time, 'localtime') as event_time, '' as session_id, '' as model,
+            # 按 date + model 双维度分组，保留模型信息供前端展示
+            query = f"""SELECT DATE(event_time, 'localtime') as event_time, '' as session_id, model,
                 SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens,
                 SUM(cached_input_tokens) as cached_input_tokens, SUM(reasoning_tokens) as reasoning_tokens,
                 SUM(estimated_cost_usd) as estimated_cost_usd
-                FROM token_usage_logs{where} GROUP BY DATE(event_time, 'localtime') ORDER BY event_time ASC"""
+                FROM token_usage_logs{where} GROUP BY DATE(event_time, 'localtime'), model ORDER BY event_time ASC"""
         else:
             query = f"SELECT * FROM token_usage_logs{where} ORDER BY event_time ASC"
             if not from_dt and not to_dt and limit:
@@ -132,12 +113,13 @@ class Repository:
         return [dict(r) for r in rows]
 
     def insert_event(self, event_at: datetime, event_type: str, message: str) -> int:
-        cur = self.conn.execute(
-            "INSERT INTO usage_events (event_at, event_type, message) VALUES (?, ?, ?)",
-            (event_at.isoformat(), event_type, message),
-        )
-        self.conn.commit()
-        return cur.lastrowid
+        with self._write_lock:
+            cur = self.conn.execute(
+                "INSERT INTO usage_events (event_at, event_type, message) VALUES (?, ?, ?)",
+                (event_at.isoformat(), event_type, message),
+            )
+            self.conn.commit()
+            return cur.lastrowid
 
     def get_events(self, limit: int = 100) -> list[dict[str, Any]]:
         rows = self.conn.execute(
@@ -177,43 +159,34 @@ class Repository:
         ).fetchone()
         return dict(row)
 
-    def get_setting(self, key: str) -> str | None:
-        row = self.conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
-        return row["value"] if row else None
-
-    def set_setting(self, key: str, value: str) -> None:
-        self.conn.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value)
-        )
-        self.conn.commit()
-
     def insert_quota_sample(self, sample: QuotaSample) -> int:
-        cur = self.conn.execute(
-            """INSERT INTO quota_samples
-               (captured_at, plan_type, email,
-                five_hour_used_pct, five_hour_remaining_pct, five_hour_reset_at, five_hour_window_seconds,
-                weekly_used_pct, weekly_remaining_pct, weekly_reset_at, weekly_window_seconds,
-                has_credits, credits_balance, raw_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                sample.captured_at.isoformat(),
-                sample.plan_type,
-                sample.email,
-                sample.five_hour_used_pct,
-                sample.five_hour_remaining_pct,
-                sample.five_hour_reset_at.isoformat() if sample.five_hour_reset_at else None,
-                sample.five_hour_window_seconds,
-                sample.weekly_used_pct,
-                sample.weekly_remaining_pct,
-                sample.weekly_reset_at.isoformat() if sample.weekly_reset_at else None,
-                sample.weekly_window_seconds,
-                1 if sample.has_credits else 0,
-                sample.credits_balance,
-                json.dumps(sample.raw_json, ensure_ascii=False) if sample.raw_json else None,
-            ),
-        )
-        self.conn.commit()
-        return cur.lastrowid
+        with self._write_lock:
+            cur = self.conn.execute(
+                """INSERT INTO quota_samples
+                   (captured_at, plan_type, email,
+                    five_hour_used_pct, five_hour_remaining_pct, five_hour_reset_at, five_hour_window_seconds,
+                    weekly_used_pct, weekly_remaining_pct, weekly_reset_at, weekly_window_seconds,
+                    has_credits, credits_balance, raw_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    sample.captured_at.isoformat(),
+                    sample.plan_type,
+                    sample.email,
+                    sample.five_hour_used_pct,
+                    sample.five_hour_remaining_pct,
+                    sample.five_hour_reset_at.isoformat() if sample.five_hour_reset_at else None,
+                    sample.five_hour_window_seconds,
+                    sample.weekly_used_pct,
+                    sample.weekly_remaining_pct,
+                    sample.weekly_reset_at.isoformat() if sample.weekly_reset_at else None,
+                    sample.weekly_window_seconds,
+                    1 if sample.has_credits else 0,
+                    sample.credits_balance,
+                    json.dumps(sample.raw_json, ensure_ascii=False) if sample.raw_json else None,
+                ),
+            )
+            self.conn.commit()
+            return cur.lastrowid
 
     def get_latest_quota(self) -> dict[str, Any] | None:
         row = self.conn.execute(

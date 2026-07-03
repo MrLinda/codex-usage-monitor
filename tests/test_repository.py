@@ -30,8 +30,8 @@ def test_insert_and_retrieve(repo):
         reasoning_tokens=0,
         estimated_cost_usd=0.0015,
     )
-    insert_id = repo.insert_token_usage(usage)
-    assert insert_id is not None
+    count = repo.insert_token_usage_batch([usage])
+    assert count == 1
 
     rows = repo.get_token_usage(limit=100)
     assert len(rows) == 1
@@ -42,9 +42,8 @@ def test_insert_and_retrieve(repo):
 
 def test_summary(repo):
     base = datetime.now(timezone.utc)
-    # 同一 session/model 下，event_time 不同才会被当作不同行（去重唯一索引）
-    for i in range(3):
-        repo.insert_token_usage(TokenUsage(
+    entries = [
+        TokenUsage(
             event_time=base.replace(microsecond=i),
             session_id="s1",
             model="gpt-4o",
@@ -53,7 +52,11 @@ def test_summary(repo):
             cached_input_tokens=0,
             reasoning_tokens=0,
             estimated_cost_usd=0.001,
-        ))
+        )
+        for i in range(3)
+    ]
+    count = repo.insert_token_usage_batch(entries)
+    assert count == 3
 
     summary = repo.get_summary()
     assert summary["total_entries"] == 3
@@ -85,8 +88,10 @@ def test_batch_insert_dedup(repo):
 
 def test_model_breakdown(repo):
     now = datetime.now(timezone.utc)
-    repo.insert_token_usage(TokenUsage(event_time=now, session_id="s1", model="gpt-4o", input_tokens=100, output_tokens=200, cached_input_tokens=0, reasoning_tokens=0, estimated_cost_usd=0.001))
-    repo.insert_token_usage(TokenUsage(event_time=now, session_id="s2", model="o3", input_tokens=500, output_tokens=1000, cached_input_tokens=0, reasoning_tokens=0, estimated_cost_usd=0.02))
+    repo.insert_token_usage_batch([
+        TokenUsage(event_time=now, session_id="s1", model="gpt-4o", input_tokens=100, output_tokens=200, cached_input_tokens=0, reasoning_tokens=0, estimated_cost_usd=0.001),
+        TokenUsage(event_time=now, session_id="s2", model="o3", input_tokens=500, output_tokens=1000, cached_input_tokens=0, reasoning_tokens=0, estimated_cost_usd=0.02),
+    ])
 
     models = repo.get_model_breakdown()
     assert len(models) == 2
@@ -102,9 +107,3 @@ def test_insert_event(repo):
     events = repo.get_events()
     assert len(events) == 1
     assert events[0]["event_type"] == "test_event"
-
-
-def test_settings(repo):
-    repo.set_setting("key1", "value1")
-    assert repo.get_setting("key1") == "value1"
-    assert repo.get_setting("nonexistent") is None

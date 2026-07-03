@@ -28,12 +28,7 @@ async def main():
     run_migrations(conn)
     repo = Repository(conn)
 
-    count = 0
-    for entry in entries:
-        existing = repo.get_token_usage(from_dt=entry.event_time, to_dt=entry.event_time, limit=1)
-        if not existing:
-            repo.insert_token_usage(entry)
-            count += 1
+    count = repo.insert_token_usage_batch(entries)
 
     total_tokens = sum(
         e.input_tokens + e.output_tokens + e.cached_input_tokens + e.reasoning_tokens

@@ -4,11 +4,11 @@ import csv
 import io
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, Query
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel
 
 from app.config import Config, load_config
@@ -20,6 +20,24 @@ from app.storage.repository import Repository
 logger = logging.getLogger("codex_usage_monitor")
 
 
+
+
+def _wrap_errors(func):
+    """为 API 端点统一捕获异常，返回 JSON 错误而非 500 堆栈。"""
+    import functools
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            logger.exception("API error in %s: %s", func.__name__, e)
+            return JSONResponse(
+                status_code=500,
+                content={"error": type(e).__name__, "message": str(e)},
+            )
+    return wrapper
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     cfg = get_config()
@@ -27,10 +45,23 @@ async def lifespan(_app: FastAPI):
     run_migrations(conn)
     global _repo
     _repo = Repository(conn)
-    yield
+    try:
+        yield
+    finally:
+        conn.close()
+        logger.info("Database connection closed")
 
 
 app = FastAPI(title="Codex Usage Monitor", version="0.1.0", lifespan=lifespan)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request, exc):
+    logger.exception("Unhandled API exception: %s", exc)
+    return JSONResponse(
+        status_code=500,
+        content={"error": type(exc).__name__, "message": str(exc)},
+    )
 
 _config: Config | None = None
 _repo: Repository | None = None
@@ -55,6 +86,7 @@ def get_repo() -> Repository:
 
 
 @app.get("/api/status")
+@_wrap_errors
 def api_status():
     repo = get_repo()
     summary = repo.get_summary()
@@ -80,10 +112,13 @@ def api_status():
             "estimated_cost_usd": round(today_cost, 4),
             "entries": len(today_rows),
         },
+        "quota": repo.get_latest_quota(),
+        "reset_credits": _poller.quota_collector.get_reset_credits() if _poller else {},
     }
 
 
 @app.get("/api/token-usage")
+@_wrap_errors
 def api_token_usage(
     from_dt: str | None = Query(None),
     to_dt: str | None = Query(None),
@@ -110,7 +145,8 @@ def api_token_usage(
 
 
 @app.get("/api/events")
-def api_events(limit: int = Query(100)):
+@_wrap_errors
+def api_events(limit: int = Query(50)):
     repo = get_repo()
     return repo.get_events(limit=limit)
 
@@ -181,6 +217,7 @@ def api_set_poll_interval(req: PollIntervalRequest):
 
 
 @app.get("/api/usage/rolling")
+@_wrap_errors
 def api_rolling_usage():
     repo = get_repo()
     return {
@@ -190,8 +227,8 @@ def api_rolling_usage():
 
 
 @app.get("/api/usage/windowed")
+@_wrap_errors
 def api_usage_windowed():
-    from datetime import timedelta
     repo = get_repo()
     latest = repo.get_latest_quota()
     result = {"five_hour": None, "weekly": None}
@@ -223,6 +260,7 @@ def api_usage_windowed():
 
 
 @app.get("/api/quota/status")
+@_wrap_errors
 def api_quota_status():
     repo = get_repo()
     latest = repo.get_latest_quota()
@@ -236,8 +274,6 @@ async def api_quota_refresh_and_status():
     与 /api/collect-now 共用同一套采集逻辑，但额外把最新配额和两个窗口
     的 token 用量打包返回，省去前端再发一次请求。
     """
-    from datetime import timedelta
-
     if not _poller:
         return {"error": "poller not available"}
 
@@ -284,6 +320,7 @@ async def api_quota_reset_credits(force: bool = Query(False)):
 
 
 @app.get("/api/quota/history")
+@_wrap_errors
 def api_quota_history(
     limit: int = 500,
     from_dt: str | None = Query(None),
@@ -297,14 +334,13 @@ def api_quota_history(
 
 
 @app.get("/api/quota/estimated-costs")
+@_wrap_errors
 def api_quota_estimated_costs(
     limit: int = 500,
     from_dt: str | None = Query(None),
     to_dt: str | None = Query(None),
     daily: bool = Query(False),
 ):
-    from datetime import timedelta
-
     repo = get_repo()
     from_parsed = datetime.fromisoformat(from_dt) if from_dt else None
     to_parsed = datetime.fromisoformat(to_dt) if to_dt else None
@@ -341,6 +377,7 @@ def api_quota_estimated_costs(
 
 
 @app.get("/api/export/token-usage.csv")
+@_wrap_errors
 def api_export_csv():
     repo = get_repo()
     rows = repo.get_token_usage(limit=100000)

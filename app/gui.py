@@ -15,7 +15,7 @@ from app.config import Config, save_config
 
 logger = logging.getLogger("codex_usage_monitor")
 
-DASHBOARD_URL = "http://127.0.0.1:8765"
+
 
 
 def _enable_dpi_awareness() -> float:
@@ -94,11 +94,10 @@ def _fmt_countdown(iso_str: str | None) -> str:
     return f"{mins}分钟"
 
 
-def _fetch_quota() -> dict | None:
+def _fetch_quota(base_url: str) -> dict | None:
     try:
-        logger.info("Refreshing quota from %s/api/quota/refresh-and-status", DASHBOARD_URL)
-        # 同步触发一次配额 + token 采集，可能耗时 5-15s，所以 timeout 放到 30s
-        with urlopen(f"{DASHBOARD_URL}/api/quota/refresh-and-status", timeout=30) as resp:
+        logger.info("Refreshing quota from %s/api/quota/refresh-and-status", base_url)
+        with urlopen(f"{base_url}/api/quota/refresh-and-status", timeout=30) as resp:
             data = json.loads(resp.read())
             logger.info("Quota refreshed: plan=%s", (data.get("quota") or {}).get("plan_type"))
             return data
@@ -247,8 +246,13 @@ class App:
         label.configure(text="加载中" + "." * dots)
         popup.after(300, self._animate_loading, popup, label, (dots + 1) % 4)
 
+    def _dashboard_url(self) -> str:
+        if self.config:
+            return f"http://{self.config.app.host}:{self.config.app.port}"
+        return "http://127.0.0.1:8765"
+
     def _load_popup_data(self, popup):
-        data = _fetch_quota()
+        data = _fetch_quota(self._dashboard_url())
         logger.info("Popup data fetched: %s", "ok" if data else "none")
         if not popup.winfo_exists():
             return
@@ -358,7 +362,7 @@ class App:
 
     def _open_dashboard(self):
         import webbrowser
-        webbrowser.open(DASHBOARD_URL)
+        webbrowser.open(self._dashboard_url())
 
     def _open_settings(self):
         if self.config is None:
@@ -374,6 +378,12 @@ class App:
 
     def _quit(self):
         self._tray_icon.stop()
+        try:
+            import app.server.api as api_module
+            if api_module._poller:
+                api_module._poller.stop()
+        except Exception:
+            pass
         self.root.after(0, self.root.destroy)
 
     def run(self):

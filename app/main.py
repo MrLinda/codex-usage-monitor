@@ -55,6 +55,8 @@ def main():
 
 
 async def _async_main(config):
+    import signal
+
     poller = Poller(config)
 
     import app.server.api as api_module
@@ -70,7 +72,26 @@ async def _async_main(config):
         server = uvicorn.Server(config_obj)
         await server.serve()
 
-    await asyncio.gather(run_server(), poller.poll_loop())
+    main_task = asyncio.ensure_future(asyncio.gather(run_server(), poller.poll_loop()))
+
+    def _shutdown(signame):
+        logger.info("Received signal %s, shutting down...", signame)
+        poller.stop()
+
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, _shutdown, sig.name)
+        except NotImplementedError:
+            pass  # Windows doesn't support add_signal_handler
+
+    try:
+        await main_task
+    except asyncio.CancelledError:
+        pass
+    finally:
+        poller.stop()
+        logger.info("Shutdown complete")
 
 
 if __name__ == "__main__":

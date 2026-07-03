@@ -37,6 +37,8 @@ class SessionCollector(Collector):
         self.sessions_dir = Path(sessions_dir)
         self.default_model = default_model
         self.model_aliases = model_aliases or {}
+        # 增量解析状态：path -> {mtime, size, offset}
+        self._file_state: dict[str, dict] = {}
 
     async def collect(self) -> list[TokenUsage]:
         # 全量读取 + 解析 sessions 目录是纯同步 IO，放线程池避免阻塞事件循环
@@ -49,39 +51,60 @@ class SessionCollector(Collector):
             return results
 
         files = sorted(self.sessions_dir.rglob("*.jsonl"), key=lambda f: f.stat().st_mtime, reverse=True)
+        new_count = 0
         for jsonl_file in files:
             try:
-                parsed = self._parse_file(jsonl_file)
+                stat = jsonl_file.stat()
+                key = str(jsonl_file)
+                prev = self._file_state.get(key)
+                # 未变化的文件跳过
+                if prev and prev["mtime"] == stat.st_mtime and prev["size"] == stat.st_size:
+                    continue
+                is_new = prev is None
+                offset = 0 if is_new else prev["offset"]
+                parsed = self._parse_file(jsonl_file, offset=offset)
                 results.extend(parsed)
+                # 更新状态
+                self._file_state[key] = {
+                    "mtime": stat.st_mtime,
+                    "size": stat.st_size,
+                    "offset": stat.st_size,
+                }
+                if parsed:
+                    new_count += 1
             except Exception as e:
                 logger.error("Failed to parse %s: %s", jsonl_file.name, e)
 
-        logger.info("Collected %d token usage entries from %d session files", len(results), len(files))
+        if results:
+            logger.info("Collected %d token usage entries from %d changed session files", len(results), new_count)
         return results
 
-    def _parse_file(self, path: Path) -> list[TokenUsage]:
+    def _parse_file(self, path: Path, offset: int = 0) -> list[TokenUsage]:
         entries: list[TokenUsage] = []
         session_id = self._extract_session_id(path)
         current_model = self.default_model
 
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
-                continue
+        with open(path, encoding="utf-8") as f:
+            if offset > 0:
+                f.seek(offset)
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
 
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
 
-            # Track model from response_item / turn_context events
-            event_model = self._extract_event_model(event)
-            if event_model:
-                current_model = event_model
+                # Track model from response_item / turn_context events
+                event_model = self._extract_event_model(event)
+                if event_model:
+                    current_model = event_model
 
-            token_usage = self._extract_token_usage(event, session_id, current_model)
-            if token_usage:
-                entries.append(token_usage)
+                token_usage = self._extract_token_usage(event, session_id, current_model)
+                if token_usage:
+                    entries.append(token_usage)
 
         return entries
 
@@ -105,8 +128,8 @@ class SessionCollector(Collector):
     @staticmethod
     def _extract_session_id(path: Path) -> str:
         try:
-            text = path.read_text(encoding="utf-8")
-            first_line = text.splitlines()[0].strip()
+            with open(path, encoding="utf-8") as f:
+                first_line = f.readline().strip()
             if first_line:
                 event = json.loads(first_line)
                 sid = event.get("payload", {}).get("id")
