@@ -3,10 +3,12 @@ from __future__ import annotations
 import csv
 import io
 import logging
-from datetime import datetime
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import FastAPI, Query
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel
 
 from app.config import Config, load_config
@@ -17,7 +19,18 @@ from app.storage.repository import Repository
 
 logger = logging.getLogger("codex_usage_monitor")
 
-app = FastAPI(title="Codex Usage Monitor", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    cfg = get_config()
+    conn = get_connection(cfg.paths.db_path)
+    run_migrations(conn)
+    global _repo
+    _repo = Repository(conn)
+    yield
+
+
+app = FastAPI(title="Codex Usage Monitor", version="0.1.0", lifespan=lifespan)
 
 _config: Config | None = None
 _repo: Repository | None = None
@@ -41,28 +54,20 @@ def get_repo() -> Repository:
     return _repo
 
 
-@app.on_event("startup")
-def startup():
-    cfg = get_config()
-    conn = get_connection(cfg.paths.db_path)
-    run_migrations(conn)
-    global _repo
-    _repo = Repository(conn)
-
-
 @app.get("/api/status")
 def api_status():
     repo = get_repo()
     summary = repo.get_summary()
     models = repo.get_model_breakdown()
-    last_24h = repo.get_token_usage(
-        from_dt=datetime.now().replace(hour=0, minute=0, second=0, microsecond=0),
-    )
-    today_input = sum(r["input_tokens"] for r in last_24h)
-    today_cached = sum(r["cached_input_tokens"] for r in last_24h)
-    today_output = sum(r["output_tokens"] for r in last_24h)
+    # DB 里 event_time 是 UTC ISO 串："今日"取本地时区 0 点再转 UTC，
+    # 否则在 UTC+8 下会从早上 8 点才开始算
+    local_midnight = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_rows = repo.get_token_usage(from_dt=local_midnight.astimezone(timezone.utc))
+    today_input = sum(r["input_tokens"] for r in today_rows)
+    today_cached = sum(r["cached_input_tokens"] for r in today_rows)
+    today_output = sum(r["output_tokens"] for r in today_rows)
     today_tokens = today_input + today_output
-    today_cost = sum(r["estimated_cost_usd"] or 0 for r in last_24h)
+    today_cost = sum(r["estimated_cost_usd"] or 0 for r in today_rows)
 
     return {
         "summary": summary,
@@ -73,7 +78,7 @@ def api_status():
             "cached_input_tokens": today_cached,
             "output_tokens": today_output,
             "estimated_cost_usd": round(today_cost, 4),
-            "entries": len(last_24h),
+            "entries": len(today_rows),
         },
     }
 
@@ -270,10 +275,10 @@ async def api_quota_refresh_and_status():
 
 
 @app.get("/api/quota/reset-credits")
-def api_quota_reset_credits(force: bool = Query(False)):
+async def api_quota_reset_credits(force: bool = Query(False)):
     if _poller and _poller.quota_collector:
         if force:
-            _poller.quota_collector.fetch_reset_credits()
+            await _poller.quota_collector.fetch_reset_credits()
         return _poller.quota_collector.get_reset_credits()
     return {"credits": [], "available_count": 0}
 
@@ -362,3 +367,15 @@ def api_export_csv():
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
     return HTMLResponse(DASHBOARD_HTML)
+
+
+CHART_JS_PATH = Path(__file__).resolve().parent / "static" / "chart.umd.min.js"
+CHART_JS_CDN = "https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"
+
+
+@app.get("/static/chart.umd.min.js")
+def chart_js():
+    # 优先用打包进来的本地 Chart.js（离线可用）；文件缺失时回退 CDN
+    if CHART_JS_PATH.is_file():
+        return FileResponse(CHART_JS_PATH, media_type="application/javascript")
+    return RedirectResponse(CHART_JS_CDN)

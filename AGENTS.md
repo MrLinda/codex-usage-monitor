@@ -65,10 +65,12 @@ pyinstaller codex-backend.spec --distpath dist-backend --noconfirm
 - 配额重置竖线：检测 `reset_at` 字段变化，2 分钟容差过滤抖动，连续 3 次确认或时间差 ≥2 小时才画线
 - 模型定价表硬编码在 `log_collector.py` 的 `MODEL_PRICING` 字典
 - model_aliases 配置支持别名映射（如 codex-auto-review → gpt-5.4）
+- 采集用的同步 IO（requests 请求、sessions 文件解析）都通过 `asyncio.to_thread` 放线程池，避免阻塞与 uvicorn 共享的事件循环
+- 时区约定：DB 统一存 UTC ISO 串；"今日"按本地 0 点转 UTC 查询，按天聚合用 SQLite `DATE(..., 'localtime')` 折算本地日界
+- Chart.js 打包在 `app/server/static/` 本地伺服（离线可用），文件缺失时 `/static/chart.umd.min.js` 回退 CDN
 
 ### Known Issues
 - pystray 左键单击弹窗在某些环境下不生效（`on_click` 回调未触发），需进一步调试
-- 启动后第一次采集需等待配置的间隔时间，不会立即执行
 
 ### Dependencies
 - Python: fastapi, uvicorn, pydantic, tomli-w, requests, pystray, Pillow

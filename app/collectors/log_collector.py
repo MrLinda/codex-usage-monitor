@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -38,6 +39,10 @@ class SessionCollector(Collector):
         self.model_aliases = model_aliases or {}
 
     async def collect(self) -> list[TokenUsage]:
+        # 全量读取 + 解析 sessions 目录是纯同步 IO，放线程池避免阻塞事件循环
+        return await asyncio.to_thread(self._collect_sync)
+
+    def _collect_sync(self) -> list[TokenUsage]:
         results: list[TokenUsage] = []
         if not self.sessions_dir.is_dir():
             logger.warning("Sessions dir not found: %s", self.sessions_dir)

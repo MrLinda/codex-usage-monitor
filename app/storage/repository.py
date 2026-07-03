@@ -85,11 +85,13 @@ class Repository:
         where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
 
         if daily:
-            query = f"""SELECT DATE(event_time) as event_time, '' as session_id, '' as model,
+            # event_time 存的是 UTC ISO 串，按天聚合用 localtime 折算到本地日界，
+            # 否则 UTC+8 下"一天"是从早上 8 点到次日 8 点
+            query = f"""SELECT DATE(event_time, 'localtime') as event_time, '' as session_id, '' as model,
                 SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens,
                 SUM(cached_input_tokens) as cached_input_tokens, SUM(reasoning_tokens) as reasoning_tokens,
                 SUM(estimated_cost_usd) as estimated_cost_usd
-                FROM token_usage_logs{where} GROUP BY DATE(event_time) ORDER BY event_time ASC"""
+                FROM token_usage_logs{where} GROUP BY DATE(event_time, 'localtime') ORDER BY event_time ASC"""
         else:
             query = f"SELECT * FROM token_usage_logs{where} ORDER BY event_time ASC"
             if not from_dt and not to_dt and limit:
@@ -233,9 +235,10 @@ class Repository:
         if daily:
             fh_filter = "five_hour_used_pct > 0 AND five_hour_reset_at IS NOT NULL AND five_hour_window_seconds IS NOT NULL"
             full_where = f"{where} AND {fh_filter}" if where else f" WHERE {fh_filter}"
+            # 与 token 按天聚合一致，"每日末条"按本地日界取
             query = f"""SELECT q.* FROM quota_samples q
-                INNER JOIN (SELECT DATE(captured_at) AS day, MAX(captured_at) AS max_at
-                    FROM quota_samples{full_where} GROUP BY DATE(captured_at)
+                INNER JOIN (SELECT DATE(captured_at, 'localtime') AS day, MAX(captured_at) AS max_at
+                    FROM quota_samples{full_where} GROUP BY DATE(captured_at, 'localtime')
                 ) latest ON q.captured_at = latest.max_at ORDER BY q.captured_at ASC"""
         elif from_dt or to_dt:
             query = f"SELECT * FROM quota_samples{where} ORDER BY captured_at ASC"

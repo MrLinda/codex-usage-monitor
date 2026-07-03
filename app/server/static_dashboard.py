@@ -5,7 +5,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Codex 监控</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='4' y='4' width='56' height='56' rx='12' fill='%231f6feb'/%3E%3Cpolyline points='16,40 24,28 32,34 40,20 48,26' fill='none' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='24' cy='28' r='2.5' fill='white'/%3E%3Ccircle cx='32' cy='34' r='2.5' fill='white'/%3E%3Ccircle cx='40' cy='20' r='2.5' fill='white'/%3E%3Cline x1='16' y1='44' x2='48' y2='44' stroke='white' stroke-width='1.5' stroke-linecap='round'/%3E%3Cline x1='16' y1='20' x2='16' y2='44' stroke='white' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="/static/chart.umd.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0d1117; color: #c9d1d9; padding: 0; }
@@ -187,6 +187,8 @@ function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete chart
 function destroyAllCharts() { Object.keys(charts).forEach(k => destroyChart(k)); }
 
 function fmtTime(isoStr) { if (!isoStr) return '-'; return new Date(isoStr).toLocaleString(); }
+// 按天聚合的接口返回 date-only 串，直接 new Date('YYYY-MM-DD') 会按 UTC 0 点解析导致日期偏移，补上本地 0 点
+const parseEventTime = (s) => /^\\d{4}-\\d{2}-\\d{2}$/.test(s) ? new Date(s + 'T00:00:00') : new Date(s);
 function fmtCountdown(isoStr) {
   if (!isoStr) return '-';
   const diff = new Date(isoStr) - new Date();
@@ -212,6 +214,25 @@ function gaugeSVG(pct, size) {
       transform="rotate(-90 40 40)" stroke-linecap="round"/>
     <text x="40" y="42" text-anchor="middle" fill="${color}" font-size="18" font-weight="700">${Math.round(pct)}%</text>
   </svg>`;
+}
+
+// === 重置卡（概览页 / 配额页共用） ===
+function availableResetCards(rc) { return ((rc || {}).credits || []).filter(c => c.status === 'available'); }
+function resetCardRow(c) {
+  const exp = c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '';
+  const days = c.expires_at ? Math.ceil((new Date(c.expires_at) - new Date()) / 86400000) : null;
+  return `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #21262d"><div><div style="font-size:13px">${c.title || '重置卡'}</div><div style="font-size:11px;color:#8b949e">${c.description || ''}</div></div><div style="text-align:right"><div style="font-size:12px;color:#8b949e">${exp}</div><div style="font-size:11px;color:${days !== null && days <= 7 ? '#d29922' : '#8b949e'}">${days !== null ? days + '天后过期' : ''}</div></div></div>`;
+}
+function updateRcModal(rcList) {
+  let modal = document.getElementById('rcModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'rcModal';
+    modal.style.cssText = 'display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000';
+    modal.onclick = e => { if (e.target === modal) modal.style.display = 'none'; };
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#161b22;border:1px solid #30363d;border-radius:12px;padding:20px;width:480px;height:400px;overflow-y:auto;overflow-x:hidden"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:15px;font-weight:600">重置卡详情</div><button onclick="this.closest('#rcModal').style.display='none'" style="background:none;border:none;color:#8b949e;font-size:18px;cursor:pointer">&times;</button></div>${rcList.map(resetCardRow).join('') || '<div style="color:#8b949e;font-size:13px">暂无可用重置卡</div>'}</div>`;
 }
 
 // === Refresh ===
@@ -242,13 +263,8 @@ function renderOverview(d) {
   const q = d.quotaStatus || {};
   const rc = d.resetCredits || {};
   const rcCount = rc.available_count || 0;
-  const rcList = (rc.credits || []).filter(c => c.status === 'available');
+  const rcList = availableResetCards(rc);
   const planLabel = q.plan_type ? q.plan_type.charAt(0).toUpperCase() + q.plan_type.slice(1) : '-';
-  const rcListHtml = rcList.map(c => {
-    const exp = c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '';
-    const days = c.expires_at ? Math.ceil((new Date(c.expires_at) - new Date()) / 86400000) : null;
-    return `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #21262d"><div><div style="font-size:13px">${c.title || '重置卡'}</div><div style="font-size:11px;color:#8b949e">${c.description || ''}</div></div><div style="text-align:right"><div style="font-size:12px;color:#8b949e">${exp}</div><div style="font-size:11px;color:${days !== null && days <= 7 ? '#d29922' : '#8b949e'}">${days !== null ? days + '天后过期' : ''}</div></div></div>`;
-  }).join('');
   document.getElementById('ovQuotaCards').innerHTML = `
     <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">账号</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div style="font-size:13px;color:#8b949e">${q.email || ''}</div><div class="value" style="font-size:22px">${planLabel}</div><div class="sub" style="margin-top:4px">重置卡: <span style="color:${rcCount > 0 ? '#3fb950' : '#8b949e'}">${rcCount}</span>${rcList.length > 0 ? ` <a href="javascript:void(0)" onclick="document.getElementById('rcModal').style.display='block'" style="color:#58a6ff;font-size:11px;margin-left:4px">查看详情</a>` : ''}</div></div></div>
     <div class="card">
@@ -267,15 +283,7 @@ function renderOverview(d) {
     </div>
     <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">最后采集</div><div style="flex:1;display:flex;align-items:center"><div class="value" style="font-size:16px">${fmtTime(q.captured_at)}</div></div></div>
   `;
-  let modal = document.getElementById('rcModal');
-  if (!modal) {
-    modal = document.createElement('div');
-    modal.id = 'rcModal';
-    modal.style.cssText = 'display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000';
-    modal.onclick = e => { if (e.target === modal) modal.style.display = 'none'; };
-    document.body.appendChild(modal);
-  }
-  modal.innerHTML = `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#161b22;border:1px solid #30363d;border-radius:12px;padding:20px;width:480px;height:400px;overflow-y:auto;overflow-x:hidden"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:15px;font-weight:600">重置卡详情</div><button onclick="this.closest('#rcModal').style.display='none'" style="background:none;border:none;color:#8b949e;font-size:18px;cursor:pointer">&times;</button></div>${rcListHtml || '<div style="color:#8b949e;font-size:13px">暂无可用重置卡</div>'}</div>`;
+  updateRcModal(rcList);
 
   const s = d.status.summary || {};
   const today = d.status.today || {};
@@ -359,7 +367,7 @@ function renderTrendChart(tokenUsage) {
 
   if (selectedTrendGran === 'hour') {
     for (const r of tokenUsage) {
-      const date = new Date(r.event_time);
+      const date = parseEventTime(r.event_time);
       if (date.getTime() < now.getTime() - 24 * 3600 * 1000) continue;
       const key = date.toLocaleDateString() + ' ' + date.getHours() + ':00';
       if (!buckets[key]) buckets[key] = { tokens: 0, cost: 0 };
@@ -376,7 +384,7 @@ function renderTrendChart(tokenUsage) {
     }
   } else {
     for (const r of tokenUsage) {
-      const date = new Date(r.event_time);
+      const date = parseEventTime(r.event_time);
       const key = date.toLocaleDateString();
       if (!buckets[key]) buckets[key] = { tokens: 0, cost: 0 };
       buckets[key].tokens += (r.input_tokens + r.output_tokens);
@@ -469,15 +477,10 @@ function renderQuota(d) {
   const lastEst = estCosts.length > 0 ? estCosts[estCosts.length - 1] : {};
   const rc = d.resetCredits || {};
   const rcCount = rc.available_count || 0;
-  const rcList = (rc.credits || []).filter(c => c.status === 'available');
+  const rcList = availableResetCards(rc);
   const nextExpiring = rcList.slice().sort((a, b) => new Date(a.expires_at) - new Date(b.expires_at))[0];
   const nextExpStr = nextExpiring ? new Date(nextExpiring.expires_at).toLocaleDateString() : '';
   const nextExpDays = nextExpiring ? Math.ceil((new Date(nextExpiring.expires_at) - new Date()) / 86400000) : null;
-  const rcListHtml = rcList.map(c => {
-    const exp = c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '';
-    const days = c.expires_at ? Math.ceil((new Date(c.expires_at) - new Date()) / 86400000) : null;
-    return `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #21262d"><div><div style="font-size:13px">${c.title || '重置卡'}</div><div style="font-size:11px;color:#8b949e">${c.description || ''}</div></div><div style="text-align:right"><div style="font-size:12px;color:#8b949e">${exp}</div><div style="font-size:11px;color:${days !== null && days <= 7 ? '#d29922' : '#8b949e'}">${days !== null ? days + '天后过期' : ''}</div></div></div>`;
-  }).join('');
   document.getElementById('quotaCards').innerHTML = `
     <div class="card">
       <div class="label">周剩余</div>
@@ -489,15 +492,7 @@ function renderQuota(d) {
     <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">5 小时估算额度</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div class="value" style="font-size:22px">${lastEst.five_hour_est_total != null ? fmt$(lastEst.five_hour_est_total) : '-'}</div></div></div>
     <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">重置卡</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div class="value" style="font-size:22px;color:${rcCount > 0 ? '#3fb950' : '#8b949e'}">${rcCount}</div>${nextExpiring ? `<div class="sub" style="margin-top:4px">最近过期: ${nextExpStr} <span style="color:${nextExpDays !== null && nextExpDays <= 7 ? '#d29922' : '#8b949e'}">(${nextExpDays}天)</span></div>` : ''}${rcList.length > 0 ? `<div style="margin-top:6px"><button onclick="document.getElementById('rcModal').style.display='block'" style="background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer">查看详情</button></div>` : ''}</div></div>
   `;
-  let modal = document.getElementById('rcModal');
-  if (!modal) {
-    modal = document.createElement('div');
-    modal.id = 'rcModal';
-    modal.style.cssText = 'display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000';
-    modal.onclick = e => { if (e.target === modal) modal.style.display = 'none'; };
-    document.body.appendChild(modal);
-  }
-  modal.innerHTML = `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#161b22;border:1px solid #30363d;border-radius:12px;padding:20px;width:480px;height:400px;overflow-y:auto;overflow-x:hidden"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:15px;font-weight:600">重置卡详情</div><button onclick="this.closest('#rcModal').style.display='none'" style="background:none;border:none;color:#8b949e;font-size:18px;cursor:pointer">&times;</button></div>${rcListHtml || '<div style="color:#8b949e;font-size:13px">暂无可用重置卡</div>'}</div>`;
+  updateRcModal(rcList);
 
   const history = d.quotaHistory;
   destroyChart('quotaChart');
@@ -683,7 +678,7 @@ function renderUsage(d) {
     const m = r.model || 'unknown';
     if (!models[m]) models[m] = { input: 0, cached: 0, output: 0, cost: 0 };
     models[m].input += inp; models[m].cached += cac; models[m].output += out; models[m].cost += cst;
-    const date = new Date(r.event_time);
+    const date = parseEventTime(r.event_time);
     const key = longRange
       ? date.toLocaleDateString()
       : date.toLocaleDateString() + ' ' + date.getHours() + ':00';

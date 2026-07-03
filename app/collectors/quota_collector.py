@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -38,7 +39,10 @@ def _parse_window(window: dict | None) -> tuple[float | None, float | None, date
         return None, None, None, None
 
     used = window.get("used_percent")
-    remaining = window.get("percent_left") or window.get("remaining_percent")
+    # 不能用 or 链：percent_left 为 0.0（额度耗尽）是合法值，or 会把它当缺失跳过
+    remaining = window.get("percent_left")
+    if remaining is None:
+        remaining = window.get("remaining_percent")
     if remaining is None and used is not None:
         remaining = max(0.0, 100.0 - float(used))
 
@@ -86,7 +90,8 @@ class QuotaCollector(Collector):
         captured_at = datetime.now(timezone.utc)
 
         try:
-            response = requests.get(USAGE_URL, headers=headers, timeout=30)
+            # requests 是同步库，放线程池执行，避免卡住与 uvicorn 共享的事件循环
+            response = await asyncio.to_thread(requests.get, USAGE_URL, headers=headers, timeout=30)
             response.raise_for_status()
             data = response.json()
         except requests.RequestException as e:
@@ -129,13 +134,14 @@ class QuotaCollector(Collector):
     def get_reset_credits(self) -> dict:
         return self._reset_credits_cache or {"credits": [], "available_count": 0}
 
-    def fetch_reset_credits(self) -> dict:
+    async def fetch_reset_credits(self) -> dict:
         creds = _get_credentials()
         if not creds:
             return {"error": "auth.json not found", "credits": [], "available_count": 0}
         token, _ = creds
         try:
-            resp = requests.get(
+            resp = await asyncio.to_thread(
+                requests.get,
                 RESET_CREDITS_URL,
                 headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
                 timeout=10,

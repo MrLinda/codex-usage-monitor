@@ -1,18 +1,32 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 import sys
 from pathlib import Path
 
 block_cipher = None
 root = Path(SPECPATH)
 
+# conda 环境把 tcl/tk/sqlite/lzma/bz2/ffi 等 DLL 放在 Library/bin，
+# 不在系统 PATH 里，PyInstaller 默认搜不到。把这个目录追加进 PATH
+# 让依赖分析阶段能解析到这些 DLL 并打包进发布产物。
+_conda_bin = Path(sys.executable).parent / 'Library' / 'bin'
+if _conda_bin.is_dir():
+    os.environ['PATH'] = str(_conda_bin) + os.pathsep + os.environ.get('PATH', '')
+
+_datas = [
+    (str(root / 'app' / 'server' / 'static_dashboard.py'), 'app/server'),
+    (str(root / 'app' / 'server' / 'schemas.py'), 'app/server'),
+]
+# 本地 Chart.js（离线仪表盘用），存在才打包；缺失时后端会回退 CDN
+_static_dir = root / 'app' / 'server' / 'static'
+if _static_dir.is_dir():
+    _datas.append((str(_static_dir), 'app/server/static'))
+
 a = Analysis(
     [str(root / 'app' / 'main.py')],
     pathex=[str(root)],
     binaries=[],
-    datas=[
-        (str(root / 'app' / 'server' / 'static_dashboard.py'), 'app' / 'server'),
-        (str(root / 'app' / 'server' / 'schemas.py'), 'app' / 'server'),
-    ],
+    datas=_datas,
     hiddenimports=[
         'uvicorn',
         'uvicorn.logging',
@@ -54,7 +68,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['PyQt5', 'PySide6', 'PyQt6', 'PySide2'],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
