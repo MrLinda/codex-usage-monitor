@@ -39,6 +39,8 @@ class SessionCollector(Collector):
         self.model_aliases = model_aliases or {}
         # 增量解析状态：path -> {mtime, size, offset}
         self._file_state: dict[str, dict] = {}
+        # 解析逻辑版本号，变更时强制全量重解析已有文件
+        self._parse_version = 2
 
     async def collect(self) -> list[TokenUsage]:
         # 全量读取 + 解析 sessions 目录是纯同步 IO，放线程池避免阻塞事件循环
@@ -57,11 +59,20 @@ class SessionCollector(Collector):
                 stat = jsonl_file.stat()
                 key = str(jsonl_file)
                 prev = self._file_state.get(key)
-                # 未变化的文件跳过
-                if prev and prev["mtime"] == stat.st_mtime and prev["size"] == stat.st_size:
+                # 解析逻辑版本变化或文件有修改 → 从头重解析
+                cache_valid = (
+                    prev
+                    and prev.get("ver") == self._parse_version
+                    and prev["mtime"] == stat.st_mtime
+                    and prev["size"] == stat.st_size
+                )
+                if cache_valid:
                     continue
                 is_new = prev is None
                 offset = 0 if is_new else prev["offset"]
+                # 版本变化时强制从头解析
+                if prev and prev.get("ver") != self._parse_version:
+                    offset = 0
                 parsed = self._parse_file(jsonl_file, offset=offset)
                 results.extend(parsed)
                 # 更新状态
@@ -69,6 +80,7 @@ class SessionCollector(Collector):
                     "mtime": stat.st_mtime,
                     "size": stat.st_size,
                     "offset": stat.st_size,
+                    "ver": self._parse_version,
                 }
                 if parsed:
                     new_count += 1
@@ -82,7 +94,9 @@ class SessionCollector(Collector):
     def _parse_file(self, path: Path, offset: int = 0) -> list[TokenUsage]:
         entries: list[TokenUsage] = []
         session_id = self._extract_session_id(path)
-        current_model = self.default_model
+        # 优先从 session_meta.base_instructions 推断型号（新格式 session 没有结构化 model 字段）
+        session_model = self._detect_model_from_session(path, offset)
+        current_model = session_model if session_model else self.default_model
 
         with open(path, encoding="utf-8") as f:
             if offset > 0:
@@ -108,6 +122,55 @@ class SessionCollector(Collector):
 
         return entries
 
+    def _detect_model_from_session(self, path: Path, offset: int = 0) -> str | None:
+        """从 session_meta.base_instructions 文本里推断型号。
+
+        新格式 Codex session 的 response_item/turn_context 事件不再携带 model 字段，
+        只能从 session_meta.base_instructions 里的描述文本（如 "based on GPT-5"）推断。
+        """
+        try:
+            with open(path, encoding="utf-8") as f:
+                if offset > 0:
+                    # 增量模式下 session_meta 在第一行，已经读过了，不再回头
+                    return None
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if event.get("type") == "session_meta":
+                        text = (event.get("payload", {}).get("base_instructions", {}) or {}).get("text", "")
+                        return self._infer_model_from_text(text)
+                    # session_meta 是第一行，读完就可以停
+                    break
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def _infer_model_from_text(text: str) -> str | None:
+        """从 base_instructions 文本里匹配已知型号。"""
+        if not text:
+            return None
+        text_lower = text.lower()
+        # 按特异性从高到低匹配
+        if "gpt-5.4-mini" in text_lower:
+            return "gpt-5.4-mini"
+        if "gpt-5.4" in text_lower:
+            return "gpt-5.4"
+        if "gpt-5.5" in text_lower:
+            return "gpt-5.5"
+        if "gpt-5" in text_lower:
+            return "gpt-5.5"  # 默认 GPT-5 系列用 5.5 定价
+        if "gpt-4o-mini" in text_lower:
+            return "gpt-4o-mini"
+        if "gpt-4o" in text_lower:
+            return "gpt-4o"
+        return None
+
     @staticmethod
     def _extract_event_model(event: dict) -> str | None:
         t = event.get("type")
@@ -118,6 +181,11 @@ class SessionCollector(Collector):
             if model:
                 return model
         if t == "turn_context":
+            # 新格式可能直接在 payload 下有 model
+            model = payload.get("model")
+            if model:
+                return model
+            # 旧格式在 collaboration_mode.settings 下
             cm = payload.get("collaboration_mode") or {}
             settings = cm.get("settings") or {}
             model = settings.get("model")
