@@ -469,9 +469,17 @@ function renderQuota(d) {
   const nextExpDays = nextExpiring ? Math.ceil((new Date(nextExpiring.expires_at) - new Date()) / 86400000) : null;
   document.getElementById('quotaCards').innerHTML = `
     <div class="card">
+      <div class="label">5 小时剩余</div>
+      <div style="display:flex;flex-direction:column;align-items:center;margin-top:8px">
+        ${gaugeSVG(q.five_hour_remaining_pct, 80)}
+        <div style="font-size:11px;color:#8b949e">${fmtCountdown(q.five_hour_reset_at)}</div>
+      </div>
+    </div>
+    <div class="card">
       <div class="label">周剩余</div>
       <div style="display:flex;flex-direction:column;align-items:center;margin-top:8px">
         ${gaugeSVG(q.weekly_remaining_pct, 80)}
+        <div style="font-size:11px;color:#8b949e">${fmtCountdown(q.weekly_reset_at)}</div>
       </div>
     </div>
     <div class="card" style="display:flex;flex-direction:column;align-items:center"><div class="label">5 小时估算额度</div><div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center"><div class="value" style="font-size:22px">${lastEst.five_hour_est_total != null ? fmt$(lastEst.five_hour_est_total) : '-'}</div></div></div>
