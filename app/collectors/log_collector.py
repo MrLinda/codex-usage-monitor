@@ -40,7 +40,7 @@ class SessionCollector(Collector):
         # 增量解析状态：path -> {mtime, size, offset}
         self._file_state: dict[str, dict] = {}
         # 解析逻辑版本号，变更时强制全量重解析已有文件
-        self._parse_version = 4
+        self._parse_version = 5
 
     async def collect(self) -> list[TokenUsage]:
         # 全量读取 + 解析 sessions 目录是纯同步 IO，放线程池避免阻塞事件循环
@@ -73,14 +73,19 @@ class SessionCollector(Collector):
                 # 版本变化时强制从头解析
                 if prev and prev.get("ver") != self._parse_version:
                     offset = 0
-                parsed = self._parse_file(jsonl_file, offset=offset)
+                # 增量解析时沿用上次解析到的型号，避免新 token_count 出现在 turn_context 之前
+                cached_model = prev.get("current_model") if prev else None
+                parsed, last_model = self._parse_file(
+                    jsonl_file, offset=offset, start_model=cached_model or self.default_model
+                )
                 results.extend(parsed)
-                # 更新状态
+                # 更新状态（保存最后型号供下次增量解析使用）
                 self._file_state[key] = {
                     "mtime": stat.st_mtime,
                     "size": stat.st_size,
                     "offset": stat.st_size,
                     "ver": self._parse_version,
+                    "current_model": last_model,
                 }
                 if parsed:
                     new_count += 1
@@ -91,10 +96,11 @@ class SessionCollector(Collector):
             logger.info("Collected %d token usage entries from %d changed session files", len(results), new_count)
         return results
 
-    def _parse_file(self, path: Path, offset: int = 0) -> list[TokenUsage]:
+    def _parse_file(self, path: Path, offset: int = 0, start_model: str | None = None) -> tuple[list[TokenUsage], str]:
+        """解析 session 文件，返回 (TokenUsage 列表, 最后解析到的型号)。"""
         entries: list[TokenUsage] = []
         session_id = self._extract_session_id(path)
-        current_model = self.default_model
+        current_model = start_model or self.default_model
 
         with open(path, encoding="utf-8") as f:
             if offset > 0:
@@ -109,7 +115,7 @@ class SessionCollector(Collector):
                 except json.JSONDecodeError:
                     continue
 
-                # Track model from response_item / turn_context events
+                # Track model from turn_context events
                 event_model = self._extract_event_model(event)
                 if event_model:
                     current_model = event_model
@@ -118,7 +124,7 @@ class SessionCollector(Collector):
                 if token_usage:
                     entries.append(token_usage)
 
-        return entries
+        return entries, current_model
 
     @staticmethod
     def _extract_event_model(event: dict) -> str | None:
