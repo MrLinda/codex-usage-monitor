@@ -40,7 +40,7 @@ class SessionCollector(Collector):
         # 增量解析状态：path -> {mtime, size, offset}
         self._file_state: dict[str, dict] = {}
         # 解析逻辑版本号，变更时强制全量重解析已有文件
-        self._parse_version = 2
+        self._parse_version = 3
 
     async def collect(self) -> list[TokenUsage]:
         # 全量读取 + 解析 sessions 目录是纯同步 IO，放线程池避免阻塞事件循环
