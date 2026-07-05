@@ -22,7 +22,7 @@ class AppConfig:
     quota_interval_minutes: int = 10
     host: str = "127.0.0.1"
     port: int = 8765
-    default_model: str = "gpt-4o"
+    default_model: str = "unknown"
     model_aliases: dict[str, str] = field(default_factory=lambda: {"codex-auto-review": "gpt-5.4"})
 
 

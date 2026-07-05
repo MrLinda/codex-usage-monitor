@@ -14,16 +14,21 @@ print("Current model distribution:")
 for m, c in models.most_common():
     print(f"  {m:25s} {c:6d} rows")
 
-default_model = "gpt-4o"
-wrong = conn.execute("SELECT COUNT(*) FROM token_usage_logs WHERE model=?", (default_model,)).fetchone()[0]
-print(f"\nRows with model={default_model!r}: {wrong}")
+# 清理所有旧版 fallback 型克（unknown 和以前的 gpt-4o）
+bad_models = ["unknown", "gpt-4o"]
+total_deleted = 0
+for m in bad_models:
+    cnt = conn.execute("SELECT COUNT(*) FROM token_usage_logs WHERE model=?", (m,)).fetchone()[0]
+    if cnt > 0:
+        conn.execute("DELETE FROM token_usage_logs WHERE model=?", (m,))
+        total_deleted += cnt
+        print(f"  Deleted {cnt} rows with model={m!r}")
 
-if wrong > 0:
-    conn.execute("DELETE FROM token_usage_logs WHERE model=?", (default_model,))
+if total_deleted > 0:
     conn.commit()
     remaining = conn.execute("SELECT COUNT(*) FROM token_usage_logs").fetchone()[0]
-    print(f"Deleted. Remaining rows: {remaining}")
+    print(f"\nTotal deleted: {total_deleted}. Remaining rows: {remaining}")
     print("Restart the app to re-parse all sessions with correct model names.")
 else:
-    print("Nothing to clean.")
+    print("\nNothing to clean.")
 conn.close()
