@@ -1,5 +1,14 @@
 # Codex Usage Monitor - Agents Guide
 
+## Rules
+
+- **NEVER commit or push without explicit user confirmation.**
+- Always inspect `git status`, `git diff`, and recent commits before staging.
+- Write concise commit messages that match the repo style (conventional commits: `feat:`, `fix:`, `chore:`, `docs:`).
+- Do NOT update git config, skip hooks, use interactive `-i`, force-push, create empty commits, or amend commits unless explicitly requested.
+- Run lint + tests after changes and report the result to the user.
+- Ask before adding any files outside code edits (documentation, config, etc.).
+
 ## Lint & Test
 
 ```bash
