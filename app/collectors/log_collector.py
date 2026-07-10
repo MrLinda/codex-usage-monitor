@@ -11,19 +11,48 @@ from app.models import TokenUsage
 
 logger = logging.getLogger("codex_usage_monitor")
 
-MODEL_PRICING = {
-    "gpt-5.5":      {"input": 5.00,   "output": 30.00,  "cached_input": 0.50},
-    "gpt-5.4":      {"input": 2.50,   "output": 15.00,  "cached_input": 0.25},
-    "gpt-5.4-mini": {"input": 0.75,   "output": 4.50,   "cached_input": 0.075},
+# Price per 1M tokens. Two tiers: short context (default) and long context.
+# cache_writes is the upstream 5-min TTL write price; if entry is None it means
+# same price as regular input (i.e. no separate cache-write surcharge).
+MODEL_PRICING: dict[str, dict[str, dict[str, float | None]]] = {
+    "gpt-5.6-sol": {
+        "short": {"input": 5.00,  "cached_input": 0.50, "cache_writes": 6.25,  "output": 30.00},
+        "long":  {"input": 10.00, "cached_input": 1.00, "cache_writes": 12.50, "output": 45.00},
+    },
+    "gpt-5.6-terra": {
+        "short": {"input": 2.50,  "cached_input": 0.25, "cache_writes": 3.125, "output": 15.00},
+        "long":  {"input": 5.00,  "cached_input": 0.50, "cache_writes": 6.25,  "output": 22.50},
+    },
+    "gpt-5.6-luna": {
+        "short": {"input": 1.00,  "cached_input": 0.10, "cache_writes": 1.25,  "output": 6.00},
+        "long":  {"input": 2.00,  "cached_input": 0.20, "cache_writes": 2.50,  "output": 9.00},
+    },
+    "gpt-5.5": {
+        "short": {"input": 5.00,  "cached_input": 0.50, "cache_writes": None,   "output": 30.00},
+        "long":  {"input": 10.00, "cached_input": 1.00, "cache_writes": None,   "output": 45.00},
+    },
+    # Legacy models (single tier only)
+    "gpt-5.4":      {"short": {"input": 2.50,  "cached_input": 0.25, "cache_writes": None,  "output": 15.00}},
+    "gpt-5.4-mini": {"short": {"input": 0.75,  "cached_input": 0.075, "cache_writes": None, "output": 4.50}},
 }
 
 
-def calc_cost(model: str, input_t: int, output_t: int, cached_t: int, model_aliases: dict[str, str] | None = None) -> float:
+def calc_cost(
+    model: str,
+    input_t: int,
+    output_t: int,
+    cached_t: int,
+    model_aliases: dict[str, str] | None = None,
+    *,
+    long_context: bool = False,
+) -> float:
     resolved = (model_aliases or {}).get(model, model)
-    pricing = MODEL_PRICING.get(resolved)
-    if pricing is None:
+    tiers = MODEL_PRICING.get(resolved)
+    if tiers is None:
         logger.warning("No pricing for model %s (resolved=%s) — set model_aliases in config", model, resolved)
         return 0.0
+    tier = "long" if long_context else "short"
+    pricing = tiers.get(tier) or tiers["short"]
     uncached_t = max(0, input_t - cached_t)
     return (
         uncached_t / 1_000_000 * pricing["input"]
