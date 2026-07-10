@@ -1,5 +1,7 @@
 # Codex Usage Monitor
 
+[中文文档](README_zh.md)
+
 Local-first Windows desktop app for tracking OpenAI Codex token usage and cost.
 
 ## Features
