@@ -77,39 +77,42 @@ class Repository:
             query = f"SELECT * FROM token_usage_logs{where} ORDER BY event_time ASC"
             if not from_dt and not to_dt and limit:
                 query += f" LIMIT {limit}"
-        rows = self.conn.execute(query, params).fetchall()
+        with self._write_lock:
+            rows = self.conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
     def get_summary(self) -> dict[str, Any]:
-        row = self.conn.execute(
-            """SELECT
-                COUNT(*) as total_entries,
-                COALESCE(SUM(input_tokens + output_tokens), 0) as total_tokens,
-                COALESCE(SUM(input_tokens), 0) as total_input,
-                COALESCE(SUM(cached_input_tokens), 0) as total_cached,
-                COALESCE(SUM(output_tokens), 0) as total_output,
-                COALESCE(SUM(estimated_cost_usd), 0) as total_cost,
-                COUNT(DISTINCT model) as model_count,
-                COUNT(DISTINCT session_id) as session_count,
-                MAX(event_time) as last_event
-               FROM token_usage_logs"""
-        ).fetchone()
+        with self._write_lock:
+            row = self.conn.execute(
+                """SELECT
+                    COUNT(*) as total_entries,
+                    COALESCE(SUM(input_tokens + output_tokens), 0) as total_tokens,
+                    COALESCE(SUM(input_tokens), 0) as total_input,
+                    COALESCE(SUM(cached_input_tokens), 0) as total_cached,
+                    COALESCE(SUM(output_tokens), 0) as total_output,
+                    COALESCE(SUM(estimated_cost_usd), 0) as total_cost,
+                    COUNT(DISTINCT model) as model_count,
+                    COUNT(DISTINCT session_id) as session_count,
+                    MAX(event_time) as last_event
+                   FROM token_usage_logs"""
+            ).fetchone()
         return dict(row)
 
     def get_model_breakdown(self) -> list[dict[str, Any]]:
-        rows = self.conn.execute(
-            """SELECT
-                model,
-                COUNT(*) as entries,
-                COALESCE(SUM(input_tokens), 0) as input_tokens,
-                COALESCE(SUM(cached_input_tokens), 0) as cached_input_tokens,
-                COALESCE(SUM(output_tokens), 0) as output_tokens,
-                COALESCE(SUM(reasoning_tokens), 0) as reasoning_tokens,
-                COALESCE(SUM(estimated_cost_usd), 0) as total_cost
-               FROM token_usage_logs
-               GROUP BY model
-               ORDER BY total_cost DESC"""
-        ).fetchall()
+        with self._write_lock:
+            rows = self.conn.execute(
+                """SELECT
+                    model,
+                    COUNT(*) as entries,
+                    COALESCE(SUM(input_tokens), 0) as input_tokens,
+                    COALESCE(SUM(cached_input_tokens), 0) as cached_input_tokens,
+                    COALESCE(SUM(output_tokens), 0) as output_tokens,
+                    COALESCE(SUM(reasoning_tokens), 0) as reasoning_tokens,
+                    COALESCE(SUM(estimated_cost_usd), 0) as total_cost
+                   FROM token_usage_logs
+                   GROUP BY model
+                   ORDER BY total_cost DESC"""
+            ).fetchall()
         return [dict(r) for r in rows]
 
     def insert_event(self, event_at: datetime, event_type: str, message: str) -> int:
@@ -122,41 +125,44 @@ class Repository:
             return cur.lastrowid
 
     def get_events(self, limit: int = 100) -> list[dict[str, Any]]:
-        rows = self.conn.execute(
-            "SELECT * FROM usage_events ORDER BY event_at DESC LIMIT ?", (limit,)
-        ).fetchall()
+        with self._write_lock:
+            rows = self.conn.execute(
+                "SELECT * FROM usage_events ORDER BY event_at DESC LIMIT ?", (limit,)
+            ).fetchall()
         return [dict(r) for r in rows]
 
     def get_rolling_usage(self, hours: float) -> dict[str, Any]:
         from datetime import datetime, timezone, timedelta
         since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
-        row = self.conn.execute(
-            """SELECT
-                COALESCE(SUM(input_tokens + output_tokens), 0) as total_tokens,
-                COALESCE(SUM(input_tokens), 0) as total_input,
-                COALESCE(SUM(cached_input_tokens), 0) as total_cached,
-                COALESCE(SUM(output_tokens), 0) as total_output,
-                COALESCE(SUM(estimated_cost_usd), 0) as total_cost,
-                COUNT(*) as entries
-               FROM token_usage_logs
-               WHERE event_time >= ?""",
-            (since,),
-        ).fetchone()
+        with self._write_lock:
+            row = self.conn.execute(
+                """SELECT
+                    COALESCE(SUM(input_tokens + output_tokens), 0) as total_tokens,
+                    COALESCE(SUM(input_tokens), 0) as total_input,
+                    COALESCE(SUM(cached_input_tokens), 0) as total_cached,
+                    COALESCE(SUM(output_tokens), 0) as total_output,
+                    COALESCE(SUM(estimated_cost_usd), 0) as total_cost,
+                    COUNT(*) as entries
+                   FROM token_usage_logs
+                   WHERE event_time >= ?""",
+                (since,),
+            ).fetchone()
         return dict(row)
 
     def get_windowed_usage(self, from_dt: datetime, to_dt: datetime) -> dict[str, Any]:
-        row = self.conn.execute(
-            """SELECT
-                COALESCE(SUM(input_tokens + output_tokens), 0) as total_tokens,
-                COALESCE(SUM(input_tokens), 0) as total_input,
-                COALESCE(SUM(cached_input_tokens), 0) as total_cached,
-                COALESCE(SUM(output_tokens), 0) as total_output,
-                COALESCE(SUM(estimated_cost_usd), 0) as total_cost,
-                COUNT(*) as entries
-               FROM token_usage_logs
-               WHERE event_time >= ? AND event_time <= ?""",
-            (from_dt.isoformat(), to_dt.isoformat()),
-        ).fetchone()
+        with self._write_lock:
+            row = self.conn.execute(
+                """SELECT
+                    COALESCE(SUM(input_tokens + output_tokens), 0) as total_tokens,
+                    COALESCE(SUM(input_tokens), 0) as total_input,
+                    COALESCE(SUM(cached_input_tokens), 0) as total_cached,
+                    COALESCE(SUM(output_tokens), 0) as total_output,
+                    COALESCE(SUM(estimated_cost_usd), 0) as total_cost,
+                    COUNT(*) as entries
+                   FROM token_usage_logs
+                   WHERE event_time >= ? AND event_time <= ?""",
+                (from_dt.isoformat(), to_dt.isoformat()),
+            ).fetchone()
         return dict(row)
 
     def insert_quota_sample(self, sample: QuotaSample) -> int:
@@ -189,9 +195,10 @@ class Repository:
             return cur.lastrowid
 
     def get_latest_quota(self) -> dict[str, Any] | None:
-        row = self.conn.execute(
-            "SELECT * FROM quota_samples ORDER BY captured_at DESC LIMIT 1"
-        ).fetchone()
+        with self._write_lock:
+            row = self.conn.execute(
+                "SELECT * FROM quota_samples ORDER BY captured_at DESC LIMIT 1"
+            ).fetchone()
         return dict(row) if row else None
 
     def get_quota_history(self, limit: int = 500, from_dt: datetime | None = None, to_dt: datetime | None = None, daily: bool = False) -> list[dict[str, Any]]:
@@ -218,14 +225,16 @@ class Repository:
         else:
             query = f"SELECT * FROM (SELECT * FROM quota_samples{where} ORDER BY captured_at DESC LIMIT ?) ORDER BY captured_at ASC"
             params.append(limit)
-        rows = self.conn.execute(query, params).fetchall()
+        with self._write_lock:
+            rows = self.conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
     def get_cumulative_cost(self, from_dt: datetime, to_dt: datetime) -> float:
-        row = self.conn.execute(
-            """SELECT COALESCE(SUM(estimated_cost_usd), 0) as total_cost
-               FROM token_usage_logs
-               WHERE event_time >= ? AND event_time <= ?""",
-            (from_dt.isoformat(), to_dt.isoformat()),
-        ).fetchone()
+        with self._write_lock:
+            row = self.conn.execute(
+                """SELECT COALESCE(SUM(estimated_cost_usd), 0) as total_cost
+                   FROM token_usage_logs
+                   WHERE event_time >= ? AND event_time <= ?""",
+                (from_dt.isoformat(), to_dt.isoformat()),
+            ).fetchone()
         return float(row["total_cost"])
