@@ -136,10 +136,6 @@ class App:
         self.root.geometry(f"{w}x{h}+{x}+{y}")
         self.root.protocol("WM_DELETE_WINDOW", self._minimize_to_tray)
 
-        from pathlib import Path
-        _ico_path = Path(__file__).parent / "icon.ico"
-        if _ico_path.exists():
-            self.root.iconbitmap(str(_ico_path))
         self._icon_img = create_icon_image(64)
         self._icon_photo = ImageTk.PhotoImage(self._icon_img)
         self.root.iconphoto(True, self._icon_photo)
