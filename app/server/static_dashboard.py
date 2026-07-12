@@ -214,7 +214,7 @@ function gaugeSVG(pct, size) {
 // === 重置卡（概览页 / 配额页共用） ===
 function availableResetCards(rc) { return ((rc || {}).credits || []).filter(c => c.status === 'available'); }
 function resetCardRow(c) {
-  const exp = c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '';
+  const exp = c.expires_at ? new Date(c.expires_at).toLocaleString() : '';
   const days = c.expires_at ? Math.ceil((new Date(c.expires_at) - new Date()) / 86400000) : null;
   return `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #21262d"><div><div style="font-size:13px">${c.title || '重置卡'}</div><div style="font-size:11px;color:#8b949e">${c.description || ''}</div></div><div style="text-align:right"><div style="font-size:12px;color:#8b949e">${exp}</div><div style="font-size:11px;color:${days !== null && days <= 7 ? '#d29922' : '#8b949e'}">${days !== null ? days + '天后过期' : ''}</div></div></div>`;
 }
