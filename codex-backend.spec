@@ -15,7 +15,6 @@ if _conda_bin.is_dir():
 
 _datas = [
     (str(root / 'app' / 'server' / 'static_dashboard.py'), 'app/server'),
-    (str(root / 'app' / 'server' / 'schemas.py'), 'app/server'),
 ]
 # 本地 Chart.js（离线仪表盘用），存在才打包；缺失时后端会回退 CDN
 _static_dir = root / 'app' / 'server' / 'static'
