@@ -75,7 +75,7 @@ h2 { font-size: 16px; margin-bottom: 12px; color: #f0f6fc; }
 </div>
 
 <div style="background:#1c2128;border-bottom:1px solid #30363d;padding:8px 16px;text-align:center;font-size:12px;color:#8b949e">
-  ⚠ 费用为基于 Codex session 日志的估算值，未含 cache write 溢价（适用于 GPT-5.6 等新模型）。准确金额请以 OpenAI 官方 Dashboard 为准。
+  ⚠ 费用为基于 Codex session 日志的估算值，按官方费率表（Input + Cached Input + Output）计算。OpenAI 目前未对 cache write 单独收费。准确金额请以官方 Dashboard 为准。
 </div>
 
 <div class="content">
