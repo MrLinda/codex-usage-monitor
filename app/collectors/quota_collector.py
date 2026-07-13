@@ -65,6 +65,41 @@ def _parse_window(window: dict | None) -> tuple[float | None, float | None, date
     return used_f, remaining_f, reset_at, window_sec
 
 
+def _classify_window(window: dict) -> str | None:
+    """根据 limit_window_seconds 判断窗口类型。
+
+    返回 "five_hour" / "weekly" / None（无法识别）。
+    容忍 ±5 分钟误差以应对 Api 返回的窗口秒数不完全精确的情况。
+    """
+    sec = window.get("limit_window_seconds")
+    if sec is None:
+        return None
+    if abs(sec - 5 * 3600) <= 5 * 60:
+        return "five_hour"
+    if abs(sec - 7 * 24 * 3600) <= 24 * 3600:
+        return "weekly"
+    return None
+
+
+def _extract_windows(rate_limit: dict) -> dict[str, dict]:
+    """从 rate_limit 中提取所有窗口，按 limit_window_seconds 分类。
+
+    不依赖字段名（primary_window / five_hour / weekly 等），
+    而是遍历所有子 dict，用 limit_window_seconds 判断类型。
+    返回 {"five_hour": {...}, "weekly": {...}}，缺失的类型不包含在结果中。
+    """
+    windows: dict[str, dict] = {}
+    for key, value in rate_limit.items():
+        if not isinstance(value, dict):
+            continue
+        if "limit_window_seconds" not in value and "used_percent" not in value:
+            continue
+        wtype = _classify_window(value)
+        if wtype and wtype not in windows:
+            windows[wtype] = value
+    return windows
+
+
 RESET_CREDITS_URL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
 
 
@@ -99,11 +134,13 @@ class QuotaCollector(Collector):
             return None
 
         rate_limit = data.get("rate_limit") or data.get("rate_limits") or {}
-        primary = rate_limit.get("primary_window") or rate_limit.get("five_hour") or rate_limit.get("five_hour_limit") or {}
-        secondary = rate_limit.get("secondary_window") or rate_limit.get("weekly") or rate_limit.get("weekly_limit") or {}
+        windows = _extract_windows(rate_limit)
 
-        fh_used, fh_remaining, fh_reset, fh_window = _parse_window(primary)
-        wk_used, wk_remaining, wk_reset, wk_window = _parse_window(secondary)
+        fh_used, fh_remaining, fh_reset, fh_window = _parse_window(windows.get("five_hour"))
+        wk_used, wk_remaining, wk_reset, wk_window = _parse_window(windows.get("weekly"))
+
+        if not windows:
+            logger.warning("Quota API: no rate limit windows found in response (keys: %s)", list(rate_limit.keys()))
 
         credits = data.get("credits") or {}
         has_credits = bool(credits.get("has_credits", False))
