@@ -13,6 +13,18 @@ class Repository:
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
         self._write_lock = threading.Lock()
+        # 全表聚合缓存：key -> (token, 结果)。token = (data_version, 本连接写计数)。
+        # - PRAGMA data_version 在“其它连接”提交后变化 → 采集器（poller 连接）写库后，
+        #   API 连接下次读到的值就变了，缓存自动失效（生产是读写分离的两条连接）。
+        # - data_version 对“同一连接”自己的写入不变，故再叠一个本连接写计数兜底，
+        #   保证单连接读写（如测试）也能正确失效。
+        self._agg_cache: dict[str, tuple[tuple[int, int], Any]] = {}
+        self._local_writes = 0
+
+    def _agg_token(self) -> tuple[int, int]:
+        """聚合缓存失效令牌。调用方必须已持有 _write_lock（会访问 self.conn）。"""
+        dv = self.conn.execute("PRAGMA data_version").fetchone()[0]
+        return (dv, self._local_writes)
 
     def insert_token_usage_batch(self, usages: Iterable[TokenUsage]) -> int:
         """批量插入并自动去重，返回实际新增行数。
@@ -48,7 +60,10 @@ class Repository:
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     rows,
                 )
-            return self.conn.total_changes - before
+            changed = self.conn.total_changes - before
+            if changed:
+                self._local_writes += 1  # 使本连接的聚合缓存失效
+            return changed
 
     def get_token_usage(
         self, from_dt: datetime | None = None, to_dt: datetime | None = None,
@@ -74,7 +89,10 @@ class Repository:
                 SUM(estimated_cost_usd) as estimated_cost_usd
                 FROM token_usage_logs{where} GROUP BY DATE(event_time, 'localtime'), model ORDER BY event_time ASC"""
         else:
-            query = f"SELECT * FROM token_usage_logs{where} ORDER BY event_time ASC"
+            # 不取 raw_json：调用方（API/CSV 导出）用不到，且它是每行最大的字段
+            query = f"""SELECT event_time, session_id, model, input_tokens, output_tokens,
+                cached_input_tokens, reasoning_tokens, estimated_cost_usd
+                FROM token_usage_logs{where} ORDER BY event_time ASC"""
             if not from_dt and not to_dt and limit:
                 query += f" LIMIT {limit}"
         with self._write_lock:
@@ -83,6 +101,10 @@ class Repository:
 
     def get_summary(self) -> dict[str, Any]:
         with self._write_lock:
+            token = self._agg_token()
+            hit = self._agg_cache.get("summary")
+            if hit and hit[0] == token:
+                return hit[1]
             row = self.conn.execute(
                 """SELECT
                     COUNT(*) as total_entries,
@@ -96,10 +118,16 @@ class Repository:
                     MAX(event_time) as last_event
                    FROM token_usage_logs"""
             ).fetchone()
-        return dict(row)
+            result = dict(row)
+            self._agg_cache["summary"] = (token, result)
+        return result
 
     def get_model_breakdown(self) -> list[dict[str, Any]]:
         with self._write_lock:
+            token = self._agg_token()
+            hit = self._agg_cache.get("model_breakdown")
+            if hit and hit[0] == token:
+                return hit[1]
             rows = self.conn.execute(
                 """SELECT
                     model,
@@ -113,7 +141,9 @@ class Repository:
                    GROUP BY model
                    ORDER BY total_cost DESC"""
             ).fetchall()
-        return [dict(r) for r in rows]
+            result = [dict(r) for r in rows]
+            self._agg_cache["model_breakdown"] = (token, result)
+        return result
 
     def insert_event(self, event_at: datetime, event_type: str, message: str) -> int:
         with self._write_lock:

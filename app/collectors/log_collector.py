@@ -81,9 +81,10 @@ class SessionCollector(Collector):
             logger.warning("Sessions dir not found: %s", self.sessions_dir)
             return results
 
-        files = sorted(self.sessions_dir.rglob("*.jsonl"), key=lambda f: f.stat().st_mtime, reverse=True)
+        # 不排序：文件相互独立、DB 层 INSERT OR IGNORE 去重、current_model 按文件路径存，
+        # 处理顺序不影响结果。旧的 sorted(key=stat) 会对整棵树多做一趟 stat，纯浪费。
         new_count = 0
-        for jsonl_file in files:
+        for jsonl_file in self.sessions_dir.rglob("*.jsonl"):
             try:
                 stat = jsonl_file.stat()
                 key = str(jsonl_file)
@@ -235,5 +236,7 @@ class SessionCollector(Collector):
             cached_input_tokens=cached_t,
             reasoning_tokens=reasoning_t,
             estimated_cost_usd=cost,
-            raw_json=json.dumps(event, ensure_ascii=False),
+            # raw_json 只写不读：不再序列化存储，避免每行写放大与 DB 无界膨胀。
+            # session 源文件本身就是 raw 数据，需要重解析时直接读磁盘（见 _parse_version）。
+            raw_json=None,
         )

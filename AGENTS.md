@@ -30,9 +30,15 @@ python -m app.main --headless
 
 ## Build
 
+打包**必须**用精简的 `build-venv`（干净 venv，含全部运行时依赖但无 numpy/MKL）。
+不要用裸 `pyinstaller`——本机 PATH 优先命中 Anaconda base，`.spec` 会把 `sys.executable/../Library/bin`
+加进 PATH，导致整套 MKL DLL 被打进产物，体积从 ~57MB 暴涨到 ~790MB。
+
 ```bash
-pyinstaller codex-backend.spec --distpath dist-backend --noconfirm
+build-venv\Scripts\python.exe -m PyInstaller codex-backend.spec --distpath dist-backend --noconfirm
 ```
+
+验证：`dist-backend/codex-backend` 应约 57MB（exe ~7.5MB），`_internal/` 里不应出现任何 `mkl_*` / `numpy` / `scipy`。
 
 ## Architecture
 

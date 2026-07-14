@@ -94,23 +94,19 @@ def api_status():
     # DB 里 event_time 是 UTC ISO 串："今日"取本地时区 0 点再转 UTC，
     # 否则在 UTC+8 下会从早上 8 点才开始算
     local_midnight = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
-    today_rows = repo.get_token_usage(from_dt=local_midnight.astimezone(timezone.utc))
-    today_input = sum(r["input_tokens"] for r in today_rows)
-    today_cached = sum(r["cached_input_tokens"] for r in today_rows)
-    today_output = sum(r["output_tokens"] for r in today_rows)
-    today_tokens = today_input + today_output
-    today_cost = sum(r["estimated_cost_usd"] or 0 for r in today_rows)
+    # SQL 聚合代替整行拉取（旧实现 SELECT * 会把全天 raw_json 都载入内存）
+    today = repo.get_windowed_usage(local_midnight.astimezone(timezone.utc), datetime.now(timezone.utc))
 
     return {
         "summary": summary,
         "models": models,
         "today": {
-            "total_tokens": today_tokens,
-            "input_tokens": today_input,
-            "cached_input_tokens": today_cached,
-            "output_tokens": today_output,
-            "estimated_cost_usd": round(today_cost, 4),
-            "entries": len(today_rows),
+            "total_tokens": today["total_tokens"],
+            "input_tokens": today["total_input"],
+            "cached_input_tokens": today["total_cached"],
+            "output_tokens": today["total_output"],
+            "estimated_cost_usd": round(today["total_cost"], 4),
+            "entries": today["entries"],
         },
         "quota": repo.get_latest_quota(),
         "reset_credits": _poller.quota_collector.get_reset_credits() if _poller else {},

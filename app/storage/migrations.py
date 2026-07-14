@@ -67,6 +67,33 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _ensure_token_usage_unique_index(conn)
     # idx_token_usage_model 单列索引现在意义不大（被复合唯一索引覆盖大多数 GROUP BY 场景）
     _drop_index_if_exists(conn, "idx_token_usage_model")
+    _apply_versioned_migrations(conn)
+
+
+def _apply_versioned_migrations(conn: sqlite3.Connection) -> None:
+    """基于 PRAGMA user_version 的一次性迁移（幂等，应用后零成本跳过）。"""
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version < 1:
+        # v1: raw_json 只写不读，清空历史行并 VACUUM 回收物理空间
+        try:
+            n = conn.execute(
+                "UPDATE token_usage_logs SET raw_json = NULL WHERE raw_json IS NOT NULL"
+            ).rowcount
+            conn.commit()
+            if n:
+                logger.info("Migration v1: cleared raw_json from %d rows", n)
+            # VACUUM 必须在事务外执行：临时切到 autocommit
+            old_iso = conn.isolation_level
+            conn.isolation_level = None
+            try:
+                conn.execute("VACUUM")
+                logger.info("Migration v1: VACUUM done, reclaimed raw_json space")
+            finally:
+                conn.isolation_level = old_iso
+        except sqlite3.Error as e:
+            logger.warning("Migration v1 (raw_json cleanup) failed: %s", e)
+        conn.execute("PRAGMA user_version = 1")
+        conn.commit()
 
 
 def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, col_def: str) -> None:

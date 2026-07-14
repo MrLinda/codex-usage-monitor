@@ -232,6 +232,9 @@ function updateRcModal(rcList) {
 
 // === Refresh ===
 async function refresh() {
+    // 标签页在后台时跳过：主刷新是最贵的一次（4 个端点 / 多次表扫描），
+    // 后台标签页不该继续打服务器。回到前台由 visibilitychange 立即补刷。
+    if (document.hidden) return;
     const trendDays = selectedTrendGran === 'hour' ? 1 : 30;
     const trendFrom = new Date(Date.now() - trendDays * 24 * 3600 * 1000).toISOString();
     const dailyParam = selectedTrendGran === 'day' ? '&daily=true' : '';
@@ -794,7 +797,7 @@ async function syncQuotaInterval() {
 }
 syncQuotaInterval();
 // 页面不可见时暂停同步请求，减少后台开销
-document.addEventListener('visibilitychange', () => { if (!document.hidden) syncQuotaInterval(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { syncQuotaInterval(); refresh(); } });
 setInterval(() => { if (!document.hidden) syncQuotaInterval(); }, 30000);
 
 document.getElementById('pollInterval').addEventListener('change', async () => {
