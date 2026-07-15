@@ -4,6 +4,7 @@ __pycache__/
 data/
 logs/
 *.sqlite
+codex_usage.db
 .env
 .conda/
 node_modules/

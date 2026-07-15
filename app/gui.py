@@ -319,17 +319,18 @@ class App:
             else:
                 tk.Frame(content, bg="#161b22", height=6).pack()
 
-        tk.Label(content, text="5 小时剩余", fg="#8b949e", bg="#161b22", font=("Microsoft YaHei UI", 9)).pack(anchor="w")
-        bar_frame_5h = tk.Frame(content, bg="#161b22")
-        bar_frame_5h.pack(fill=tk.X, pady=(0, 2))
-        pct_5h = int(fh_pct) if fh_pct is not None else 0
-        c_5h = "#3fb950" if pct_5h > 30 else "#d29922" if pct_5h > 15 else "#f85149"
-        bg_bar = tk.Frame(bar_frame_5h, bg="#21262d", height=6)
-        bg_bar.pack(fill=tk.X, side=tk.LEFT, expand=True)
-        fg_bar = tk.Frame(bg_bar, bg=c_5h, height=6)
-        fg_bar.place(x=0, y=0, relwidth=max(0.01, pct_5h / 100), relheight=1)
-        tk.Label(bar_frame_5h, text=f"{pct_5h}%", fg=c_5h, bg="#161b22", font=("Microsoft YaHei UI", 9), width=4).pack(side=tk.LEFT, padx=(6, 0))
-        tk.Label(content, text=f"  还剩 {_fmt_countdown(fh_reset)}", fg="#8b949e", bg="#161b22", font=("Microsoft YaHei UI", 9)).pack(anchor="w", pady=(0, 6))
+        if fh_pct is not None or fh_reset is not None:
+            tk.Label(content, text="5 小时剩余", fg="#8b949e", bg="#161b22", font=("Microsoft YaHei UI", 9)).pack(anchor="w")
+            bar_frame_5h = tk.Frame(content, bg="#161b22")
+            bar_frame_5h.pack(fill=tk.X, pady=(0, 2))
+            pct_5h = int(fh_pct) if fh_pct is not None else 0
+            c_5h = "#3fb950" if pct_5h > 30 else "#d29922" if pct_5h > 15 else "#f85149"
+            bg_bar = tk.Frame(bar_frame_5h, bg="#21262d", height=6)
+            bg_bar.pack(fill=tk.X, side=tk.LEFT, expand=True)
+            fg_bar = tk.Frame(bg_bar, bg=c_5h, height=6)
+            fg_bar.place(x=0, y=0, relwidth=max(0.01, pct_5h / 100), relheight=1)
+            tk.Label(bar_frame_5h, text=f"{pct_5h}%", fg=c_5h, bg="#161b22", font=("Microsoft YaHei UI", 9), width=4).pack(side=tk.LEFT, padx=(6, 0))
+            tk.Label(content, text=f"  还剩 {_fmt_countdown(fh_reset)}", fg="#8b949e", bg="#161b22", font=("Microsoft YaHei UI", 9)).pack(anchor="w", pady=(0, 6))
 
         tk.Label(content, text="周剩余", fg="#8b949e", bg="#161b22", font=("Microsoft YaHei UI", 9)).pack(anchor="w")
         bar_frame_wk = tk.Frame(content, bg="#161b22")
