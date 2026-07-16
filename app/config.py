@@ -24,13 +24,14 @@ class AppConfig:
     port: int = 8765
     default_model: str = "unknown"
     model_aliases: dict[str, str] = field(default_factory=lambda: {"codex-auto-review": "gpt-5.4"})
+    wsl_discovery: bool = True
 
 
 @dataclass
 class PathsConfig:
     data_dir: str = str(DEFAULT_CONFIG_DIR)
     db_path: str = str(DEFAULT_CONFIG_DIR / "usage.sqlite")
-    sessions_dir: str = str(DEFAULT_SESSIONS_DIR)
+    sessions_dirs: list[str] = field(default_factory=lambda: [str(DEFAULT_SESSIONS_DIR)])
     log_dir: str = str(DEFAULT_CONFIG_DIR / "logs")
 
 
@@ -63,7 +64,13 @@ def load_config(config_path: Path | None = None) -> Config:
                 if hasattr(cfg.app, k):
                     setattr(cfg.app, k, v)
         if "paths" in data:
-            for k, v in data["paths"].items():
+            paths_data = dict(data["paths"])
+            # 向后兼容：旧版 sessions_dir（字符串）→ sessions_dirs（列表）
+            if "sessions_dir" in paths_data and "sessions_dirs" not in paths_data:
+                old_val = paths_data.pop("sessions_dir")
+                if isinstance(old_val, str):
+                    paths_data["sessions_dirs"] = [old_val]
+            for k, v in paths_data.items():
                 if hasattr(cfg.paths, k):
                     setattr(cfg.paths, k, v)
 
@@ -77,11 +84,11 @@ def save_config(cfg: Config, config_path: Path | None = None) -> None:
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
     data = {
-        "app": {"poll_interval_seconds": cfg.app.poll_interval_seconds, "quota_interval_minutes": cfg.app.quota_interval_minutes, "host": cfg.app.host, "port": cfg.app.port, "default_model": cfg.app.default_model, "model_aliases": cfg.app.model_aliases},
+        "app": {"poll_interval_seconds": cfg.app.poll_interval_seconds, "quota_interval_minutes": cfg.app.quota_interval_minutes, "host": cfg.app.host, "port": cfg.app.port, "default_model": cfg.app.default_model, "model_aliases": cfg.app.model_aliases, "wsl_discovery": cfg.app.wsl_discovery},
         "paths": {
             "data_dir": cfg.paths.data_dir,
             "db_path": cfg.paths.db_path,
-            "sessions_dir": cfg.paths.sessions_dir,
+            "sessions_dirs": cfg.paths.sessions_dirs,
             "log_dir": cfg.paths.log_dir,
         },
     }

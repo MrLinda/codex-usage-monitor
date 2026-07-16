@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -10,6 +11,16 @@ from app.collectors.base import Collector
 from app.models import TokenUsage
 
 logger = logging.getLogger("codex_usage_monitor")
+
+
+def _no_window() -> subprocess.STARTUPINFO:
+    """Windows CREATE_NO_WINDOW 标志，防止子进程弹控制台窗口。"""
+    si = subprocess.STARTUPINFO()
+    try:
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    except AttributeError:
+        pass
+    return si
 
 # Price per 1M tokens. Two tiers: short context (default) and long context.
 # cache_writes is the upstream 5-min TTL write price; if entry is None it means
@@ -62,14 +73,51 @@ def calc_cost(
 
 
 class SessionCollector(Collector):
-    def __init__(self, sessions_dir: str | Path, default_model: str = "unknown", model_aliases: dict[str, str] | None = None):
-        self.sessions_dir = Path(sessions_dir)
+    def __init__(self, sessions_dirs: list[Path], default_model: str = "unknown", model_aliases: dict[str, str] | None = None, wsl_discovery: bool = True):
+        self.sessions_dirs = sessions_dirs
         self.default_model = default_model
         self.model_aliases = model_aliases or {}
+        self.wsl_discovery = wsl_discovery
         # 增量解析状态：path -> {mtime, size, offset}
         self._file_state: dict[str, dict] = {}
         # 解析逻辑版本号，变更时强制全量重解析已有文件
         self._parse_version = 5
+        # WSL 自动发现的目录（发现一次后缓存），每项 (label, path)
+        self._wsl_dirs: list[tuple[str, Path]] | None = None
+
+    @staticmethod
+    def _discover_wsl_dirs() -> list[tuple[str, Path]]:
+        """自动发现所有 WSL distro 中的 ~/.codex/sessions 目录。
+
+        返回 (label, path) 列表，label 如 "WSL: Debian"。
+        """
+        dirs: list[tuple[str, Path]] = []
+        try:
+            r = subprocess.run(["wsl.exe", "-l", "-q"], capture_output=True, timeout=10, startupinfo=_no_window())
+            if r.returncode != 0:
+                return dirs
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            return dirs
+
+        # wsl.exe -l -q 输出 UTF-16LE，含嵌入 null 字节
+        raw = r.stdout.replace(b"\x00", b"")
+        for line in raw.decode("utf-8", errors="replace").splitlines():
+            distro = line.strip()
+            if not distro:
+                continue
+            try:
+                r2 = subprocess.run(
+                    ["wsl.exe", "-d", distro, "bash", "-c", "wslpath -w ~/.codex/sessions"],
+                    capture_output=True, timeout=10,
+                    startupinfo=_no_window(),
+                )
+                if r2.returncode == 0:
+                    p = Path(r2.stdout.replace(b"\x00", b"").decode("utf-8", errors="replace").strip())
+                    if p.is_dir():
+                        dirs.append((f"WSL: {distro}", p))
+            except (subprocess.TimeoutExpired, OSError):
+                continue
+        return dirs
 
     async def collect(self) -> list[TokenUsage]:
         # 全量读取 + 解析 sessions 目录是纯同步 IO，放线程池避免阻塞事件循环
@@ -77,14 +125,49 @@ class SessionCollector(Collector):
 
     def _collect_sync(self) -> list[TokenUsage]:
         results: list[TokenUsage] = []
-        if not self.sessions_dir.is_dir():
-            logger.warning("Sessions dir not found: %s", self.sessions_dir)
+
+        # 构建扫描源列表：(label, path)
+        sources: list[tuple[str, Path]] = [("Host", p) for p in self.sessions_dirs]
+        if self.wsl_discovery:
+            if self._wsl_dirs is None:
+                self._wsl_dirs = self._discover_wsl_dirs()
+                if self._wsl_dirs:
+                    logger.info("Discovered WSL sessions: %s", [f"{lb}: {p}" for lb, p in self._wsl_dirs])
+            # 去重：避免 WSL 路径与手动配置重复
+            existing = {str(p.resolve()) for _, p in sources if p.exists()}
+            for label, wsl_path in self._wsl_dirs:
+                if str(wsl_path.resolve()) not in existing:
+                    sources.append((label, wsl_path))
+                    existing.add(str(wsl_path.resolve()))
+
+        # 按源分别采集，分别打日志
+        for label, sessions_dir in sources:
+            try:
+                entries = self._collect_dir(sessions_dir, label)
+                if entries:
+                    total_tokens = sum(
+                        e.input_tokens + e.output_tokens + e.cached_input_tokens + e.reasoning_tokens
+                        for e in entries
+                    )
+                    total_cost = sum(e.estimated_cost_usd or 0 for e in entries)
+                    logger.info(
+                        "[%s] Collected %d entries (%d tokens, $%.4f)",
+                        label, len(entries), total_tokens, total_cost,
+                    )
+                results.extend(entries)
+            except Exception as e:
+                logger.error("[%s] Failed to scan: %s", label, e)
+
+        return results
+
+    def _collect_dir(self, sessions_dir: Path, source: str = "") -> list[TokenUsage]:
+        """扫描单个 sessions 目录下的所有 .jsonl 文件。"""
+        results: list[TokenUsage] = []
+        if not sessions_dir.is_dir():
+            logger.debug("Sessions dir not found: %s", sessions_dir)
             return results
 
-        # 不排序：文件相互独立、DB 层 INSERT OR IGNORE 去重、current_model 按文件路径存，
-        # 处理顺序不影响结果。旧的 sorted(key=stat) 会对整棵树多做一趟 stat，纯浪费。
-        new_count = 0
-        for jsonl_file in self.sessions_dir.rglob("*.jsonl"):
+        for jsonl_file in sessions_dir.rglob("*.jsonl"):
             try:
                 stat = jsonl_file.stat()
                 key = str(jsonl_file)
@@ -108,6 +191,9 @@ class SessionCollector(Collector):
                 parsed, last_model = self._parse_file(
                     jsonl_file, offset=offset, start_model=cached_model or self.default_model
                 )
+                if source:
+                    for entry in parsed:
+                        entry.source = source
                 results.extend(parsed)
                 # 更新状态（保存最后型号供下次增量解析使用）
                 self._file_state[key] = {
@@ -117,13 +203,8 @@ class SessionCollector(Collector):
                     "ver": self._parse_version,
                     "current_model": last_model,
                 }
-                if parsed:
-                    new_count += 1
             except Exception as e:
                 logger.error("Failed to parse %s: %s", jsonl_file.name, e)
-
-        if results:
-            logger.info("Collected %d token usage entries from %d changed session files", len(results), new_count)
         return results
 
     def _parse_file(self, path: Path, offset: int = 0, start_model: str | None = None) -> tuple[list[TokenUsage], str]:

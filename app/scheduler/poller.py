@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 
 from app.collectors.log_collector import SessionCollector
 from app.collectors.quota_collector import QuotaCollector
@@ -17,7 +18,12 @@ logger = logging.getLogger("codex_usage_monitor")
 class Poller:
     def __init__(self, config: Config):
         self.config = config
-        self.session_collector = SessionCollector(config.paths.sessions_dir, default_model=config.app.default_model, model_aliases=config.app.model_aliases)
+        self.session_collector = SessionCollector(
+            [Path(p) for p in config.paths.sessions_dirs],
+            default_model=config.app.default_model,
+            model_aliases=config.app.model_aliases,
+            wsl_discovery=config.app.wsl_discovery,
+        )
         self.quota_collector = QuotaCollector()
         conn = get_connection(config.paths.db_path)
         run_migrations(conn)

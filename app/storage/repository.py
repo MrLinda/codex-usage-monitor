@@ -45,6 +45,7 @@ class Repository:
                 u.reasoning_tokens,
                 u.estimated_cost_usd,
                 u.raw_json,
+                u.source,
             )
             for u in usages
         ]
@@ -56,8 +57,8 @@ class Repository:
                 self.conn.executemany(
                     """INSERT OR IGNORE INTO token_usage_logs
                        (event_time, session_id, model, input_tokens, output_tokens,
-                        cached_input_tokens, reasoning_tokens, estimated_cost_usd, raw_json)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        cached_input_tokens, reasoning_tokens, estimated_cost_usd, raw_json, source)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     rows,
                 )
             changed = self.conn.total_changes - before

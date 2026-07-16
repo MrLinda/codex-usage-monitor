@@ -411,6 +411,7 @@ class SettingsDialog:
 
         self.token_var = tk.IntVar(value=config.app.poll_interval_seconds)
         self.quota_var = tk.IntVar(value=config.app.quota_interval_minutes)
+        self.wsl_var = tk.BooleanVar(value=config.app.wsl_discovery)
 
         self._build_ui()
 
@@ -452,11 +453,20 @@ class SettingsDialog:
         tk.Label(
             body, text="调用 ChatGPT API 获取 5h / 周配额", fg="#6e7681",
             bg="#0d1117", font=("Microsoft YaHei UI", 8),
-        ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(0, 12))
+        ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(0, 8))
+
+        # WSL 自动发现
+        self.wsl_cb = tk.Checkbutton(
+            body, text="自动发现 WSL 中的 Codex 会话", variable=self.wsl_var,
+            fg="#c9d1d9", bg="#0d1117", activebackground="#0d1117", activeforeground="#f0f6fc",
+            font=("Microsoft YaHei UI", 9), selectcolor="#0d1117",
+            cursor="hand2",
+        )
+        self.wsl_cb.grid(row=5, column=0, columnspan=3, sticky="w", pady=(0, 12))
 
         # 按钮
         btn_frame = tk.Frame(body, bg="#0d1117")
-        btn_frame.grid(row=5, column=0, columnspan=3, sticky="e", pady=(8, 0))
+        btn_frame.grid(row=6, column=0, columnspan=3, sticky="e", pady=(8, 0))
         tk.Button(
             btn_frame, text="取消", command=self._on_cancel,
             bg="#21262d", fg="#c9d1d9", relief=tk.FLAT, padx=14, pady=4,
@@ -488,6 +498,7 @@ class SettingsDialog:
         # 1) 持久化到 config.toml
         self.config.app.poll_interval_seconds = token_sec
         self.config.app.quota_interval_minutes = quota_min
+        self.config.app.wsl_discovery = self.wsl_var.get()
         try:
             save_config(self.config)
         except Exception as e:
@@ -505,5 +516,5 @@ class SettingsDialog:
         except Exception as e:
             logger.warning("热更新 poller 失败（重启后生效）: %s", e)
 
-        logger.info("设置已保存：token=%d 秒, 额度=%d 分钟", token_sec, quota_min)
+        logger.info("设置已保存：token=%d 秒, 额度=%d 分钟, WSL发现=%s", token_sec, quota_min, self.wsl_var.get())
         self.top.destroy()

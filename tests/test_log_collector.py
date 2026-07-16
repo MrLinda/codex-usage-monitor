@@ -61,7 +61,7 @@ def session_jsonl(tmp_path: Path) -> Path:
 
 @pytest.mark.asyncio
 async def test_collector_parses_token_usage(tmp_path: Path, session_jsonl: Path):
-    collector = SessionCollector(tmp_path)
+    collector = SessionCollector([tmp_path], wsl_discovery=False)
     entries = await collector.collect()
     assert len(entries) == 2
 
@@ -83,7 +83,7 @@ async def test_collector_parses_token_usage(tmp_path: Path, session_jsonl: Path)
 
 @pytest.mark.asyncio
 async def test_collector_empty_dir(tmp_path: Path):
-    collector = SessionCollector(tmp_path)
+    collector = SessionCollector([tmp_path], wsl_discovery=False)
     entries = await collector.collect()
     assert entries == []
 
@@ -98,9 +98,49 @@ async def test_collector_no_valid_events(tmp_path: Path):
         '{"timestamp":"2026-06-12T10:02:00Z","type":"event_msg","payload":{"type":"task_started"}}',
         encoding="utf-8",
     )
-    collector = SessionCollector(tmp_path)
+    collector = SessionCollector([tmp_path], wsl_discovery=False)
     entries = await collector.collect()
     assert len(entries) == 0
+
+
+@pytest.mark.asyncio
+async def test_collector_multiple_dirs(tmp_path: Path, session_jsonl: Path):
+    dir_a = tmp_path / "a"
+    dir_b = tmp_path / "b"
+    dir_a.mkdir()
+    dir_b.mkdir()
+
+    f1 = dir_a / "session-a.jsonl"
+    f1.write_text(
+        json.dumps({"timestamp": "2026-06-12T10:00:00Z", "type": "session_meta", "payload": {"id": "sess-a"}}) + "\n"
+        '{"timestamp":"2026-06-12T10:01:00Z","type":"event_msg","payload":{"type":"token_count","info":{"model":"gpt-5.4","last_token_usage":{"input_tokens":10,"output_tokens":20,"cached_input_tokens":0,"reasoning_output_tokens":0}}}}',
+        encoding="utf-8",
+    )
+    f2 = dir_b / "session-b.jsonl"
+    f2.write_text(
+        json.dumps({"timestamp": "2026-06-12T10:00:00Z", "type": "session_meta", "payload": {"id": "sess-b"}}) + "\n"
+        '{"timestamp":"2026-06-12T10:02:00Z","type":"event_msg","payload":{"type":"token_count","info":{"model":"gpt-5.5","last_token_usage":{"input_tokens":30,"output_tokens":40,"cached_input_tokens":5,"reasoning_output_tokens":1}}}}',
+        encoding="utf-8",
+    )
+
+    collector = SessionCollector([dir_a, dir_b], wsl_discovery=False)
+    entries = await collector.collect()
+    assert len(entries) == 2
+
+    ids = {e.session_id for e in entries}
+    assert ids == {"sess-a", "sess-b"}
+
+
+@pytest.mark.asyncio
+async def test_collector_wsl_discovery_graceful(tmp_path: Path, session_jsonl: Path):
+    """wsl_discovery=True 时不应报错，且至少能采到显式配置的目录。"""
+    collector = SessionCollector([tmp_path], wsl_discovery=True)
+    entries = await collector.collect()
+    # 至少包含测试 fixture 的 2 条记录（WSL 如果有会话会额外追加）
+    assert len(entries) >= 2
+    # 确认测试 fixture 的记录存在
+    models = {e.model for e in entries}
+    assert "gpt-5.4" in models
 
 
 def test_calc_cost():

@@ -10,6 +10,9 @@ root = Path(SPECPATH)
 # 不在系统 PATH 里，PyInstaller 默认搜不到。把这个目录追加进 PATH
 # 让依赖分析阶段能解析到这些 DLL 并打包进发布产物。
 _conda_bin = Path(sys.executable).parent / 'Library' / 'bin'
+# build-venv（Python venv）基于 conda，Library/bin 在 base_prefix 下
+if not _conda_bin.is_dir():
+    _conda_bin = Path(sys.base_prefix) / 'Library' / 'bin'
 if _conda_bin.is_dir():
     os.environ['PATH'] = str(_conda_bin) + os.pathsep + os.environ.get('PATH', '')
 

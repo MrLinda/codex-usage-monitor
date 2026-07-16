@@ -64,6 +64,7 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     conn.commit()
 
     _add_column_if_missing(conn, "quota_samples", "email", "TEXT NOT NULL DEFAULT ''")
+    _add_column_if_missing(conn, "token_usage_logs", "source", "TEXT")
     _ensure_token_usage_unique_index(conn)
     # idx_token_usage_model 单列索引现在意义不大（被复合唯一索引覆盖大多数 GROUP BY 场景）
     _drop_index_if_exists(conn, "idx_token_usage_model")

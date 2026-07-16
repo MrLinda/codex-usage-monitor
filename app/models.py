@@ -16,6 +16,7 @@ class TokenUsage:
     reasoning_tokens: int
     estimated_cost_usd: float | None = None
     raw_json: str | None = None
+    source: str | None = None
 
 
 @dataclass
