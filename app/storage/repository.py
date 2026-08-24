@@ -9,6 +9,31 @@ from typing import Any, Iterable
 from app.models import TokenUsage, QuotaSample
 
 
+def _uniform_sample(items: list[Any], limit: int) -> list[Any]:
+    """等距均匀抽样，保留首尾，最多 limit 点（limit<=0 或 n<=limit 直接返回）。"""
+    n = len(items)
+    if limit <= 0 or n <= limit:
+        return items
+    if limit == 1:
+        return [items[-1]]
+    step = (n - 1) / (limit - 1)
+    indices = [round(i * step) for i in range(limit)]
+    indices[-1] = n - 1
+    # round 可能产生重复（如 n=501,limit=500），去重后保留顺序，最多 500
+    seen: set[int] = set()
+    uniq: list[int] = []
+    for idx in indices:
+        if idx < 0:
+            idx = 0
+        if idx >= n:
+            idx = n - 1
+        if idx not in seen:
+            seen.add(idx)
+            uniq.append(idx)
+    # 去重后若少 1 点（499/500）可接受，保持"最多 limit"语义
+    return [items[i] for i in uniq]
+
+
 class Repository:
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
@@ -69,7 +94,15 @@ class Repository:
     def get_token_usage(
         self, from_dt: datetime | None = None, to_dt: datetime | None = None,
         limit: int = 10000, daily: bool = False,
+        max_points: int | None = 500,
     ) -> list[dict[str, Any]]:
+        """查询 token 用量，图表接口超过上限时做均匀抽样（保留首尾）。
+
+        - `daily` 时按天聚合，通常 rows < 500，不会触发抽样
+        - `max_points=None` 时不抽样（供 CSV 导出）
+        - `limit` 与 `max_points` 同时存在时取最小值作为上限（统一 500 封顶）
+        - 为避免"全部"被 SQL LIMIT 截断，抽样模式下不走 SQL LIMIT，全量后抽样
+        """
         params: list[str] = []
         conditions = []
         if from_dt:
@@ -81,24 +114,31 @@ class Repository:
         where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
 
         if daily:
-            # event_time 存的是 UTC ISO 串，按天聚合用 localtime 折算到本地日界，
-            # 否则 UTC+8 下"一天"是从早上 8 点到次日 8 点
-            # 按 date + model 双维度分组，保留模型信息供前端展示
             query = f"""SELECT DATE(event_time, 'localtime') as event_time, '' as session_id, model,
                 SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens,
                 SUM(cached_input_tokens) as cached_input_tokens, SUM(reasoning_tokens) as reasoning_tokens,
                 SUM(estimated_cost_usd) as estimated_cost_usd
                 FROM token_usage_logs{where} GROUP BY DATE(event_time, 'localtime'), model ORDER BY event_time ASC"""
         else:
-            # 不取 raw_json：调用方（API/CSV 导出）用不到，且它是每行最大的字段
             query = f"""SELECT event_time, session_id, model, input_tokens, output_tokens,
                 cached_input_tokens, reasoning_tokens, estimated_cost_usd
                 FROM token_usage_logs{where} ORDER BY event_time ASC"""
-            if not from_dt and not to_dt and limit:
+            # 仅 CSV/无抽样模式才走 SQL LIMIT；图表模式全量后均匀抽样，避免"最新 N 条"截断
+            if max_points is None and not from_dt and not to_dt and limit:
                 query += f" LIMIT {limit}"
         with self._write_lock:
             rows = self.conn.execute(query, params).fetchall()
-        return [dict(r) for r in rows]
+        result = [dict(r) for r in rows]
+        if max_points is not None and max_points > 0:
+            # 统一 500 封顶，limit 更小时取更小值
+            effective = max_points
+            if limit:
+                effective = min(effective, limit)
+            if effective > 500:
+                effective = 500
+            if len(result) > effective:
+                result = _uniform_sample(result, effective)
+        return result
 
     def get_summary(self) -> dict[str, Any]:
         with self._write_lock:
@@ -233,6 +273,10 @@ class Repository:
         return dict(row) if row else None
 
     def get_quota_history(self, limit: int = 500, from_dt: datetime | None = None, to_dt: datetime | None = None, daily: bool = False) -> list[dict[str, Any]]:
+        # 统一上限 500：超过则等距均匀抽样（保留首尾），避免"全部/近30天"被截断或超量
+        effective_limit = min(limit, 500) if limit else 500
+        if effective_limit < 1:
+            effective_limit = 1
         params: list[str | int] = []
         conditions = []
         if from_dt:
@@ -244,21 +288,26 @@ class Repository:
         where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
 
         if daily:
-            fh_filter = "five_hour_used_pct > 0 AND five_hour_reset_at IS NOT NULL AND five_hour_window_seconds IS NOT NULL"
-            full_where = f"{where} AND {fh_filter}" if where else f" WHERE {fh_filter}"
-            # 与 token 按天聚合一致，"每日末条"按本地日界取
+            # 每日末条按本地日界取；不额外过滤 five_hour，避免近30天因近期 five_hour 为空导致 0 条
             query = f"""SELECT q.* FROM quota_samples q
                 INNER JOIN (SELECT DATE(captured_at, 'localtime') AS day, MAX(captured_at) AS max_at
-                    FROM quota_samples{full_where} GROUP BY DATE(captured_at, 'localtime')
+                    FROM quota_samples{where} GROUP BY DATE(captured_at, 'localtime')
                 ) latest ON q.captured_at = latest.max_at ORDER BY q.captured_at ASC"""
-        elif from_dt or to_dt:
-            query = f"SELECT * FROM quota_samples{where} ORDER BY captured_at ASC"
-        else:
-            query = f"SELECT * FROM (SELECT * FROM quota_samples{where} ORDER BY captured_at DESC LIMIT ?) ORDER BY captured_at ASC"
-            params.append(limit)
+            with self._write_lock:
+                rows = self.conn.execute(query, params).fetchall()
+            result = [dict(r) for r in rows]
+            if len(result) > effective_limit:
+                result = _uniform_sample(result, effective_limit)
+            return result
+
+        # 非 daily：统一按 captured_at ASC 取全量，超限则等距抽样（首尾必留）
+        query = f"SELECT * FROM quota_samples{where} ORDER BY captured_at ASC"
         with self._write_lock:
             rows = self.conn.execute(query, params).fetchall()
-        return [dict(r) for r in rows]
+        result = [dict(r) for r in rows]
+        if len(result) > effective_limit:
+            result = _uniform_sample(result, effective_limit)
+        return result
 
     def get_cumulative_cost(self, from_dt: datetime, to_dt: datetime) -> float:
         with self._write_lock:

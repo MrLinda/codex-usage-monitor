@@ -124,7 +124,8 @@ def api_token_usage(
     repo = get_repo()
     from_parsed = datetime.fromisoformat(from_dt) if from_dt else None
     to_parsed = datetime.fromisoformat(to_dt) if to_dt else None
-    rows = repo.get_token_usage(from_dt=from_parsed, to_dt=to_parsed, limit=limit, daily=daily)
+    # 图表接口统一 500 封顶：超量由 repository 做均匀抽样（首尾必留）
+    rows = repo.get_token_usage(from_dt=from_parsed, to_dt=to_parsed, limit=limit, daily=daily, max_points=500)
     return [
         {
             "event_time": r["event_time"],
@@ -376,7 +377,8 @@ def api_quota_estimated_costs(
 @_wrap_errors
 def api_export_csv():
     repo = get_repo()
-    rows = repo.get_token_usage(limit=100000)
+    # CSV 导出不抽样、不封顶，必须完整
+    rows = repo.get_token_usage(limit=100000, max_points=None)
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([

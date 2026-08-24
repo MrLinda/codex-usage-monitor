@@ -31,12 +31,12 @@ MODEL_PRICING: dict[str, dict[str, dict[str, float | None]]] = {
         "long":  {"input": 10.00, "cached_input": 1.00, "cache_writes": 12.50, "output": 45.00},
     },
     "gpt-5.6-terra": {
-        "short": {"input": 2.50,  "cached_input": 0.25, "cache_writes": 3.125, "output": 15.00},
-        "long":  {"input": 5.00,  "cached_input": 0.50, "cache_writes": 6.25,  "output": 22.50},
+        "short": {"input": 2.00,  "cached_input": 0.20, "cache_writes": 2.50,  "output": 12.00},
+        "long":  {"input": 4.00,  "cached_input": 0.40, "cache_writes": 5.00,  "output": 18.00},
     },
     "gpt-5.6-luna": {
-        "short": {"input": 1.00,  "cached_input": 0.10, "cache_writes": 1.25,  "output": 6.00},
-        "long":  {"input": 2.00,  "cached_input": 0.20, "cache_writes": 2.50,  "output": 9.00},
+        "short": {"input": 0.20,  "cached_input": 0.02, "cache_writes": 0.25,  "output": 1.20},
+        "long":  {"input": 0.40,  "cached_input": 0.04, "cache_writes": 0.50,  "output": 1.80},
     },
     "gpt-5.5": {
         "short": {"input": 5.00,  "cached_input": 0.50, "cache_writes": None,   "output": 30.00},
