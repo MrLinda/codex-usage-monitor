@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+# 使用系统证书库（Windows 证书存储）替代 certifi，避免公司代理/自签名 CA 导致 SSL 校验失败
+try:
+    import truststore
+
+    truststore.inject_into_ssl()
+except ImportError:
+    pass
+
 import asyncio
 import logging
 import sys

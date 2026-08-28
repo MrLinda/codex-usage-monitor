@@ -45,6 +45,7 @@ a = Analysis(
         'pydantic',
         'tomli_w',
         'requests',
+        'truststore',
         'pystray',
         'PIL',
         'PIL.Image',

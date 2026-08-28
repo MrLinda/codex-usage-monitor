@@ -9,6 +9,7 @@ dependencies = [
     "pydantic>=2.0",
     "tomli-w>=1.0",
     "requests>=2.31",
+    "truststore>=0.9",
     "pystray>=0.19",
     "Pillow>=10.0",
 ]
