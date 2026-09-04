@@ -16,8 +16,11 @@ if not _conda_bin.is_dir():
 if _conda_bin.is_dir():
     os.environ['PATH'] = str(_conda_bin) + os.pathsep + os.environ.get('PATH', '')
 
+import certifi
+
 _datas = [
     (str(root / 'app' / 'server' / 'static_dashboard.py'), 'app/server'),
+    (certifi.where(), 'certifi'),
 ]
 # 本地 Chart.js（离线仪表盘用），存在才打包；缺失时后端会回退 CDN
 _static_dir = root / 'app' / 'server' / 'static'

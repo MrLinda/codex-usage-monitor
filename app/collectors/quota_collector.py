@@ -129,7 +129,7 @@ class QuotaCollector(Collector):
             response = await asyncio.to_thread(requests.get, USAGE_URL, headers=headers, timeout=30)
             response.raise_for_status()
             data = response.json()
-        except requests.RequestException as e:
+        except (requests.RequestException, OSError) as e:
             logger.error("Quota API request failed: %s", e)
             return None
 
@@ -186,6 +186,6 @@ class QuotaCollector(Collector):
             resp.raise_for_status()
             self._reset_credits_cache = resp.json()
             logger.info("Reset credits fetched: %d available", self._reset_credits_cache.get("available_count", 0))
-        except requests.RequestException as e:
+        except (requests.RequestException, OSError) as e:
             logger.error("Failed to fetch reset credits: %s", e)
         return self._reset_credits_cache
