@@ -26,6 +26,12 @@ def _no_window() -> subprocess.STARTUPINFO:
 # cache_writes is the upstream 5-min TTL write price; if entry is None it means
 # same price as regular input (i.e. no separate cache-write surcharge).
 MODEL_PRICING: dict[str, dict[str, dict[str, float | None]]] = {
+    "gpt-6-astra": {
+        "short": {"input": 10.00, "cached_input": 1.00, "cache_writes": 12.50, "output": 50.00},
+    },
+    "gpt-6": {
+        "short": {"input": 10.00, "cached_input": 1.00, "cache_writes": 12.50, "output": 50.00},
+    },
     "gpt-5.6-sol": {
         "short": {"input": 5.00,  "cached_input": 0.50, "cache_writes": 6.25,  "output": 30.00},
         "long":  {"input": 10.00, "cached_input": 1.00, "cache_writes": 12.50, "output": 45.00},
