@@ -32,6 +32,12 @@ MODEL_PRICING: dict[str, dict[str, dict[str, float | None]]] = {
     "gpt-6": {
         "short": {"input": 10.00, "cached_input": 1.00, "cache_writes": 12.50, "output": 50.00},
     },
+    "gpt-6-sol": {
+        "short": {"input": 2.00,  "cached_input": 0.20, "cache_writes": 2.50,  "output": 10.00},
+    },
+    "gpt-6-luna": {
+        "short": {"input": 0.10,  "cached_input": 0.01, "cache_writes": 0.125, "output": 0.50},
+    },
     "gpt-5.6-sol": {
         "short": {"input": 5.00,  "cached_input": 0.50, "cache_writes": 6.25,  "output": 30.00},
         "long":  {"input": 10.00, "cached_input": 1.00, "cache_writes": 12.50, "output": 45.00},

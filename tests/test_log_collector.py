@@ -154,6 +154,15 @@ def test_calc_cost():
     assert cost == expected
 
 
+def test_calc_cost_gpt6_family():
+    # gpt-6-sol: input 2.00, cached 0.20, output 10.00
+    assert calc_cost("gpt-6-sol", 1_000_000, 1_000_000, 500_000) == (
+        500_000 / 1_000_000 * 2.00 + 1_000_000 / 1_000_000 * 10.00 + 500_000 / 1_000_000 * 0.20
+    )
+    # gpt-6-luna: input 0.10, cached 0.01, output 0.50
+    assert calc_cost("gpt-6-luna", 1_000_000, 1_000_000, 0) == pytest.approx(0.60)
+
+
 def test_calc_cost_unknown_model():
     cost = calc_cost("unknown-model", 1000, 1000, 0)
     assert cost == 0.0
