@@ -31,7 +31,9 @@ _UVICORN_LOG_CONFIG = {
         },
         "access": {
             "()": "logging.Formatter",
-            "fmt": '%(asctime)s [%(name)s] %(levelname)s - %(client_addr)s - "%(request_line)s" %(status_code)s',
+            # uvicorn 的访问日志是旧式元组参数记录（'%s - "%s %s HTTP/%s" %d'），
+            # 不能引用 client_addr/request_line 等命名字段，否则每条访问日志抛 ValueError
+            "fmt": '%(asctime)s [%(name)s] %(levelname)s - %(message)s',
         },
     },
     "handlers": {
