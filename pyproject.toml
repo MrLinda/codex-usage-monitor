@@ -1,6 +1,6 @@
 [project]
 name = "codex-usage-monitor"
-version = "0.2.5"
+version = "0.2.6"
 description = "Local-first Windows monitor for Codex token usage & cost"
 requires-python = ">=3.11"
 dependencies = [

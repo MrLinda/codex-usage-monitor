@@ -52,7 +52,7 @@ async def lifespan(_app: FastAPI):
         logger.info("Database connection closed")
 
 
-app = FastAPI(title="Codex Usage Monitor", version="0.2.5", lifespan=lifespan)
+app = FastAPI(title="Codex Usage Monitor", version="0.2.6", lifespan=lifespan)
 
 
 @app.exception_handler(Exception)
