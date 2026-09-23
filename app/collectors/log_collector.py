@@ -60,6 +60,12 @@ MODEL_PRICING: dict[str, dict[str, dict[str, float | None]]] = {
 }
 
 
+def has_pricing(model: str, model_aliases: dict[str, str] | None = None) -> bool:
+    """该型号（经 model_aliases 解析后）在定价表里是否有价格。"""
+    resolved = (model_aliases or {}).get(model, model)
+    return resolved in MODEL_PRICING
+
+
 def calc_cost(
     model: str,
     input_t: int,
@@ -84,12 +90,35 @@ def calc_cost(
     )
 
 
+def cost_factor(
+    model: str,
+    model_aliases: dict[str, str] | None = None,
+    model_multipliers: dict[str, float] | None = None,
+) -> float:
+    """该型号的折扣系数：先按原始型号查，再按 alias 解析后的型号查，都没有则 1.0。"""
+    if not model_multipliers:
+        return 1.0
+    resolved = (model_aliases or {}).get(model, model)
+    raw = model_multipliers.get(model)
+    if raw is None:
+        raw = model_multipliers.get(resolved)
+    if raw is None:
+        return 1.0
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        logger.warning("Invalid cost multiplier for model %s: %r — using 1.0", model, raw)
+        return 1.0
+
+
 class SessionCollector(Collector):
-    def __init__(self, sessions_dirs: list[Path], default_model: str = "unknown", model_aliases: dict[str, str] | None = None, wsl_discovery: bool = True):
+    def __init__(self, sessions_dirs: list[Path], default_model: str = "unknown", model_aliases: dict[str, str] | None = None, wsl_discovery: bool = True, model_multipliers: dict[str, float] | None = None):
         self.sessions_dirs = sessions_dirs
         self.default_model = default_model
         self.model_aliases = model_aliases or {}
         self.wsl_discovery = wsl_discovery
+        # 绑定调用方传入的 dict 本身（而非 or {} 产生的新对象），让上层原地更新可被感知
+        self.model_multipliers = model_multipliers if model_multipliers is not None else {}
         # 增量解析状态：path -> {mtime, size, offset}
         self._file_state: dict[str, dict] = {}
         # 解析逻辑版本号，变更时强制全量重解析已有文件
@@ -318,7 +347,9 @@ class SessionCollector(Collector):
             else datetime.now(timezone.utc)
         )
 
-        cost = calc_cost(model, input_t, output_t, cached_t, self.model_aliases)
+        cost = calc_cost(model, input_t, output_t, cached_t, self.model_aliases) * cost_factor(
+            model, self.model_aliases, self.model_multipliers
+        )
 
         return TokenUsage(
             event_time=event_time,

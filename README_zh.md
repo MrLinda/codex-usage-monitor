@@ -60,6 +60,7 @@ python -m app.main --headless
 | `app.port` | `8765` | FastAPI 绑定端口 |
 | `app.default_model` | `unknown` | session 文件无型号信息时的回退值 |
 | `app.model_aliases` | `{"codex-auto-review": "gpt-5.4"}` | 内部型号别名到定价 key 的映射 |
+| `app.model_multipliers` | `{}` | 按型号的费用折扣系数，如 `{"gpt-5.4": 0.5}`，新数据与历史数据都会按此重算 |
 | `paths.data_dir` | `%APPDATA%\CodexUsageMonitor` | 数据库和日志目录 |
 | `paths.db_path` | `%APPDATA%\CodexUsageMonitor\usage.sqlite` | SQLite 数据库路径 |
 | `paths.sessions_dir` | `~/.codex/sessions` | Codex session 目录 |

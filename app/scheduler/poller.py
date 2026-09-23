@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.analytics.pricing import pricing_fingerprint, reprice_usage
 from app.collectors.log_collector import SessionCollector
 from app.collectors.quota_collector import QuotaCollector
 from app.config import Config
@@ -23,6 +24,7 @@ class Poller:
             default_model=config.app.default_model,
             model_aliases=config.app.model_aliases,
             wsl_discovery=config.app.wsl_discovery,
+            model_multipliers=config.app.model_multipliers,
         )
         self.quota_collector = QuotaCollector()
         conn = get_connection(config.paths.db_path)
@@ -30,11 +32,26 @@ class Poller:
         self.repo = Repository(conn)
         self._running = False
         self.quota_interval_minutes = config.app.quota_interval_minutes
+        # 上次重算全库时的定价配置指纹；None = 还没算过（首轮必算）
+        self._reprice_fp: tuple | None = None
 
     async def collect_once(self) -> int:
         entries = await self.session_collector.collect()
         # 一次性批量插入，INSERT OR IGNORE + 唯一索引负责去重，避免 N+1 SELECT
         count = self.repo.insert_token_usage_batch(entries)
+        # 定价表 / 别名 / 折扣系数任一变化时重算全库费用（历史一起缩放）。
+        # 指纹没变则整段跳过（首轮必算一次）；失败也不影响本轮采集结果。
+        try:
+            fp = pricing_fingerprint(
+                self.config.app.model_aliases, self.config.app.model_multipliers
+            )
+            if fp != self._reprice_fp:
+                reprice_usage(
+                    self.repo, self.config.app.model_aliases, self.config.app.model_multipliers
+                )
+                self._reprice_fp = fp
+        except Exception as e:
+            logger.warning("pricing reprice failed: %s", e)
 
         now = datetime.now(timezone.utc)
         if entries:

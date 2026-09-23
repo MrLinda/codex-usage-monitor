@@ -148,6 +148,13 @@ def api_events(limit: int = Query(50)):
     return repo.get_events(limit=limit)
 
 
+@app.get("/api/models")
+@_wrap_errors
+def api_models():
+    """历史数据里出现过的模型名列表（设置弹窗折扣系数下拉候选）。"""
+    return {"models": get_repo().get_used_models()}
+
+
 @app.post("/api/collect-now")
 async def api_collect_now():
     if _poller:

@@ -140,6 +140,32 @@ class Repository:
                 result = _uniform_sample(result, effective)
         return result
 
+    def get_costable_rows(self) -> list[dict[str, Any]]:
+        """全表取出 (id, model, tokens, 当前费用) —— 供按定价表重算费用使用。"""
+        with self._write_lock:
+            rows = self.conn.execute(
+                """SELECT id, model, input_tokens, output_tokens, cached_input_tokens,
+                          estimated_cost_usd
+                   FROM token_usage_logs"""
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_costs(self, updates: list[tuple[float, int]]) -> int:
+        """按 (cost, id) 批量回写费用，返回实际更新行数。"""
+        if not updates:
+            return 0
+        with self._write_lock:
+            before = self.conn.total_changes
+            with self.conn:
+                self.conn.executemany(
+                    "UPDATE token_usage_logs SET estimated_cost_usd = ? WHERE id = ?",
+                    updates,
+                )
+            changed = self.conn.total_changes - before
+            if changed:
+                self._local_writes += 1  # 使本连接的聚合缓存失效
+            return changed
+
     def get_summary(self) -> dict[str, Any]:
         with self._write_lock:
             token = self._agg_token()
@@ -185,6 +211,16 @@ class Repository:
             result = [dict(r) for r in rows]
             self._agg_cache["model_breakdown"] = (token, result)
         return result
+
+    def get_used_models(self) -> list[str]:
+        """历史数据里出现过的所有 model（去重、升序）——供设置弹窗下拉候选。"""
+        with self._write_lock:
+            rows = self.conn.execute(
+                """SELECT DISTINCT model FROM token_usage_logs
+                   WHERE model IS NOT NULL AND model != ''
+                   ORDER BY model"""
+            ).fetchall()
+        return [r[0] for r in rows]
 
     def insert_event(self, event_at: datetime, event_type: str, message: str) -> int:
         with self._write_lock:

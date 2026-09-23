@@ -24,6 +24,9 @@ class AppConfig:
     port: int = 8765
     default_model: str = "unknown"
     model_aliases: dict[str, str] = field(default_factory=lambda: {"codex-auto-review": "gpt-5.4"})
+    # 按型号的费用折扣系数（如订阅积分与 API 牌价的换算比），未列出的型号按 1.0 计。
+    # 修改后新采集与历史数据都会按"当前定价 × 系数"自动重算。
+    model_multipliers: dict[str, float] = field(default_factory=dict)
     wsl_discovery: bool = True
 
 
@@ -84,7 +87,7 @@ def save_config(cfg: Config, config_path: Path | None = None) -> None:
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
     data = {
-        "app": {"poll_interval_seconds": cfg.app.poll_interval_seconds, "quota_interval_minutes": cfg.app.quota_interval_minutes, "host": cfg.app.host, "port": cfg.app.port, "default_model": cfg.app.default_model, "model_aliases": cfg.app.model_aliases, "wsl_discovery": cfg.app.wsl_discovery},
+        "app": {"poll_interval_seconds": cfg.app.poll_interval_seconds, "quota_interval_minutes": cfg.app.quota_interval_minutes, "host": cfg.app.host, "port": cfg.app.port, "default_model": cfg.app.default_model, "model_aliases": cfg.app.model_aliases, "model_multipliers": cfg.app.model_multipliers, "wsl_discovery": cfg.app.wsl_discovery},
         "paths": {
             "data_dir": cfg.paths.data_dir,
             "db_path": cfg.paths.db_path,

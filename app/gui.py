@@ -106,6 +106,17 @@ def _fetch_quota(base_url: str) -> dict | None:
         return None
 
 
+def _fetch_models(base_url: str) -> list[str]:
+    """拉取历史数据里出现过的模型名（设置弹窗折扣系数下拉候选）；失败返回空列表。"""
+    try:
+        with urlopen(f"{base_url}/api/models", timeout=3) as resp:
+            data = json.loads(resp.read())
+            return [str(m) for m in data.get("models", [])]
+    except Exception as e:
+        logger.warning("Failed to fetch model list: %s", e)
+        return []
+
+
 class App:
     def __init__(self, config: Config | None = None):
         self.config = config
@@ -369,7 +380,8 @@ class App:
         if self.config is None:
             messagebox.showwarning("设置", "未加载配置，无法编辑")
             return
-        SettingsDialog(self.root, self.config)
+        models = _fetch_models(self._dashboard_url())
+        SettingsDialog(self.root, self.config, models=models)
 
     def _minimize_to_tray(self):
         self.root.withdraw()
@@ -397,17 +409,28 @@ class SettingsDialog:
     目前包含：
     - token 采集间隔（秒）
     - 额度采集间隔（分钟）
+    - WSL 会话自动发现
+    - 按型号的费用折扣系数（表格，可增删行；型号支持下拉选择历史模型）
 
     保存时：写入 config.toml 持久化，并热更新内存中的 Config 与正在运行的 Poller。
     """
 
-    def __init__(self, parent: tk.Tk, config: Config):
+    def __init__(self, parent: tk.Tk, config: Config, models: list[str] | None = None):
         self.config = config
+        # 历史出现过的型号 + 已配置的型号，去重排序后作为下拉候选
+        self.model_choices = sorted({*(models or []), *config.app.model_multipliers})
         self.top = tk.Toplevel(parent)
         self.top.title("设置")
         self.top.configure(bg="#0d1117")
         self.top.transient(parent)
         self.top.grab_set()  # 模态
+
+        # 型号下拉弹层是普通 Tk listbox，用 option database 上暗色；
+        # 输入框本体在 Windows vista 主题下是原生控件，保持系统默认样式
+        self.top.option_add("*TCombobox*Listbox.background", "#161b22")
+        self.top.option_add("*TCombobox*Listbox.foreground", "#c9d1d9")
+        self.top.option_add("*TCombobox*Listbox.selectBackground", "#1f6feb")
+        self.top.option_add("*TCombobox*Listbox.selectForeground", "#ffffff")
 
         self.token_var = tk.IntVar(value=config.app.poll_interval_seconds)
         self.quota_var = tk.IntVar(value=config.app.quota_interval_minutes)
@@ -464,9 +487,38 @@ class SettingsDialog:
         )
         self.wsl_cb.grid(row=5, column=0, columnspan=3, sticky="w", pady=(0, 12))
 
+        # 按型号折扣系数（表格，可增删行）
+        tk.Label(
+            body, text="折扣系数（按型号）", fg="#c9d1d9", bg="#0d1117",
+            font=("Microsoft YaHei UI", 9),
+        ).grid(row=6, column=0, columnspan=3, sticky="w", pady=(4, 2))
+
+        self.mult_box = tk.Frame(body, bg="#0d1117")
+        self.mult_box.grid(row=7, column=0, columnspan=3, sticky="we")
+        self.mult_box.columnconfigure(0, weight=1)
+        _hdr = ("Microsoft YaHei UI", 8)
+        tk.Label(self.mult_box, text="型号名", fg="#6e7681", bg="#0d1117", font=_hdr).grid(row=0, column=0, sticky="w")
+        tk.Label(self.mult_box, text="系数", fg="#6e7681", bg="#0d1117", font=_hdr).grid(row=0, column=1, sticky="w", padx=(8, 0))
+
+        self.mult_rows: list[tuple[ttk.Combobox, tk.Entry]] = []
+        self._mult_row_i = 1
+        for _name, _factor in sorted(self.config.app.model_multipliers.items()):
+            self._add_mult_row(str(_name), str(_factor))
+        self._add_mult_row()  # 始终留一个空行方便直接输入
+
+        tk.Button(
+            body, text="+ 添加一行", command=lambda: self._add_mult_row(),
+            bg="#21262d", fg="#c9d1d9", relief=tk.FLAT, padx=10, pady=2,
+            font=("Microsoft YaHei UI", 8), cursor="hand2",
+        ).grid(row=8, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        tk.Label(
+            body, text="型号可点开下拉框选历史模型（也可手输）；未列出的按 1.0 计，保存后历史费用自动重算",
+            fg="#6e7681", bg="#0d1117", font=("Microsoft YaHei UI", 8),
+        ).grid(row=9, column=0, columnspan=3, sticky="w", pady=(4, 8))
+
         # 按钮
         btn_frame = tk.Frame(body, bg="#0d1117")
-        btn_frame.grid(row=6, column=0, columnspan=3, sticky="e", pady=(8, 0))
+        btn_frame.grid(row=10, column=0, columnspan=3, sticky="e", pady=(8, 0))
         tk.Button(
             btn_frame, text="取消", command=self._on_cancel,
             bg="#21262d", fg="#c9d1d9", relief=tk.FLAT, padx=14, pady=4,
@@ -481,6 +533,60 @@ class SettingsDialog:
     def _on_cancel(self):
         self.top.destroy()
 
+    def _add_mult_row(self, name: str = "", factor: str = ""):
+        """折扣系数表格新增一行：型号下拉框 + 系数输入框 + 删除按钮。"""
+        r = self._mult_row_i
+        self._mult_row_i += 1
+        # 型号名用 Combobox（默认 state=normal）：可下拉选历史出现过的模型，也可直接手输
+        name_e = ttk.Combobox(
+            self.mult_box, width=22, values=self.model_choices, font=("Consolas", 9),
+        )
+        name_e.grid(row=r, column=0, sticky="we", pady=1)
+        name_e.insert(0, name)
+        fac_e = tk.Entry(
+            self.mult_box, width=8, bg="#161b22", fg="#c9d1d9",
+            insertbackground="#c9d1d9", relief=tk.FLAT, font=("Consolas", 9),
+        )
+        fac_e.grid(row=r, column=1, sticky="w", padx=(8, 0), pady=1)
+        fac_e.insert(0, factor)
+        del_btn = tk.Button(
+            self.mult_box, text="×", font=("Microsoft YaHei UI", 9, "bold"),
+            bg="#21262d", fg="#f85149", relief=tk.FLAT, padx=6,
+            command=lambda: self._remove_mult_row(name_e, fac_e, del_btn),
+            cursor="hand2",
+        )
+        del_btn.grid(row=r, column=2, sticky="w")
+        self.mult_rows.append((name_e, fac_e))
+
+    def _remove_mult_row(self, *widgets):
+        """删除折扣系数表格的一行（第一个参数是型号输入框，用于行登记表清理）。"""
+        victim = widgets[0]
+        self.mult_rows = [t for t in self.mult_rows if t[0] is not victim]
+        for w in widgets:
+            w.destroy()
+
+    def _parse_multipliers(self) -> dict[str, float] | None:
+        """把表格各行解析成 {型号: 系数}；格式错误时弹窗并返回 None。"""
+        result: dict[str, float] = {}
+        for i, (name_e, fac_e) in enumerate(self.mult_rows, 1):
+            name = name_e.get().strip()
+            value = fac_e.get().strip()
+            if not name and not value:
+                continue  # 空行跳过
+            if not name or not value:
+                messagebox.showerror("设置", f"折扣系数第 {i} 行：型号名和系数要同时填写")
+                return None
+            try:
+                factor = float(value)
+            except ValueError:
+                messagebox.showerror("设置", f"折扣系数第 {i} 行的系数不是数字: {value}")
+                return None
+            if factor < 0:
+                messagebox.showerror("设置", f"折扣系数第 {i} 行的系数不能为负: {value}")
+                return None
+            result[name] = factor
+        return result
+
     def _on_save(self):
         try:
             token_sec = int(self.token_var.get())
@@ -494,11 +600,15 @@ class SettingsDialog:
         if quota_min < 1:
             messagebox.showerror("设置", "额度采集间隔必须 >= 1 分钟")
             return
+        multipliers = self._parse_multipliers()
+        if multipliers is None:
+            return
 
         # 1) 持久化到 config.toml
         self.config.app.poll_interval_seconds = token_sec
         self.config.app.quota_interval_minutes = quota_min
         self.config.app.wsl_discovery = self.wsl_var.get()
+        self.config.app.model_multipliers = multipliers
         try:
             save_config(self.config)
         except Exception as e:
@@ -511,10 +621,16 @@ class SettingsDialog:
             import app.server.api as api_module
             if api_module._poller is not None:
                 api_module._poller.quota_interval_minutes = quota_min
+                # 折扣系数换了新 dict，把 collector 的引用重绑过去；
+                # 下个采集周期指纹变化会自动重算全库费用（含历史）
+                api_module._poller.session_collector.model_multipliers = multipliers
                 # poll_interval_seconds 通过 self.config.app 引用，已在 1) 中更新；
                 # poller 每轮重算 step，下个采集周期生效
         except Exception as e:
             logger.warning("热更新 poller 失败（重启后生效）: %s", e)
 
-        logger.info("设置已保存：token=%d 秒, 额度=%d 分钟, WSL发现=%s", token_sec, quota_min, self.wsl_var.get())
+        logger.info(
+            "设置已保存：token=%d 秒, 额度=%d 分钟, WSL发现=%s, 折扣系数=%s",
+            token_sec, quota_min, self.wsl_var.get(), multipliers,
+        )
         self.top.destroy()

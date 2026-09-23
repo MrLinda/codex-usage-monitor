@@ -163,6 +163,42 @@ def test_calc_cost_gpt6_family():
     assert calc_cost("gpt-6-luna", 1_000_000, 1_000_000, 0) == pytest.approx(0.60)
 
 
+def test_has_pricing():
+    from app.collectors.log_collector import has_pricing
+
+    assert has_pricing("gpt-6-sol")
+    assert not has_pricing("totally-unknown")
+    # alias 解析后也算数
+    assert has_pricing("codex-auto-review", {"codex-auto-review": "gpt-5.4"})
+    assert not has_pricing("codex-auto-review")
+
+
+def test_cost_factor():
+    from app.collectors.log_collector import cost_factor
+
+    assert cost_factor("gpt-5.4") == 1.0
+    assert cost_factor("gpt-5.4", None, {}) == 1.0
+    assert cost_factor("gpt-5.4", None, {"gpt-5.4": 0.5}) == 0.5
+    # 没列出的型号 → 1.0
+    assert cost_factor("gpt-6-sol", None, {"gpt-5.4": 0.5}) == 1.0
+    # 按 alias 解析后的型号查也行
+    assert cost_factor("codex-auto-review", {"codex-auto-review": "gpt-5.4"}, {"gpt-5.4": 0.2}) == 0.2
+    # 非法值回退 1.0
+    assert cost_factor("gpt-5.4", None, {"gpt-5.4": "oops"}) == 1.0
+
+
+@pytest.mark.asyncio
+async def test_collector_applies_cost_multiplier(tmp_path: Path, session_jsonl: Path):
+    """采集写入的费用 = 定价 × 按型号折扣系数。"""
+    collector = SessionCollector(
+        [tmp_path], wsl_discovery=False, model_multipliers={"gpt-5.4": 0.5}
+    )
+    entries = await collector.collect()
+    assert entries[0].estimated_cost_usd == pytest.approx(calc_cost("gpt-5.4", 100, 200, 50) * 0.5)
+    # 未列出的型号不打折
+    assert entries[1].estimated_cost_usd == pytest.approx(calc_cost("gpt-5.5", 500, 1000, 0))
+
+
 def test_calc_cost_unknown_model():
     cost = calc_cost("unknown-model", 1000, 1000, 0)
     assert cost == 0.0

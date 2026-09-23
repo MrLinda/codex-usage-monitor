@@ -37,6 +37,17 @@ def test_save_and_load():
         tmp_path.unlink(missing_ok=True)
 
 
+def test_model_multipliers_roundtrip(tmp_path):
+    """按型号折扣系数能存取往返，默认为空字典。"""
+    cfg = Config()
+    cfg.app.model_multipliers = {"gpt-5.4": 0.5, "gpt-6-sol": 0.25}
+    config_path = tmp_path / "config.toml"
+    save_config(cfg, config_path)
+    loaded = load_config(config_path)
+    assert loaded.app.model_multipliers == {"gpt-5.4": 0.5, "gpt-6-sol": 0.25}
+    assert Config().app.model_multipliers == {}
+
+
 def test_legacy_poll_interval_minutes_migration(tmp_path):
     """旧版本 config.toml 含 poll_interval_minutes 时自动转成 seconds。"""
     config_path = tmp_path / "config.toml"

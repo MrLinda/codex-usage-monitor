@@ -62,6 +62,7 @@ Settings are stored in `%APPDATA%\CodexUsageMonitor\config.toml`.
 | `app.port` | `8765` | Bind port for the FastAPI server |
 | `app.default_model` | `unknown` | Fallback model name when a session file contains no model info |
 | `app.model_aliases` | `{"codex-auto-review": "gpt-5.4"}` | Map internal model slugs to pricing keys |
+| `app.model_multipliers` | `{}` | Per-model cost multiplier (discount factor), e.g. `{"gpt-5.4": 0.5}`. Applies to new and historical rows |
 | `paths.data_dir` | `%APPDATA%\CodexUsageMonitor` | Directory for DB and logs |
 | `paths.db_path` | `%APPDATA%\CodexUsageMonitor\usage.sqlite` | SQLite database path |
 | `paths.sessions_dir` | `~/.codex/sessions` | Codex session directory |
