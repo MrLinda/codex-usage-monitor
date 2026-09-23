@@ -81,7 +81,7 @@ def main():
     config = load_config()
     setup_logging(config.paths.log_dir)
 
-    logger.info("Starting Codex Usage Monitor v0.1.0")
+    logger.info("Starting Codex Usage Monitor v0.2.5")
     logger.info("Dashboard: http://%s:%d", config.app.host, config.app.port)
 
     if "--headless" in sys.argv:
